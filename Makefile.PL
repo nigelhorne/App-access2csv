@@ -5,7 +5,7 @@ use ExtUtils::MakeMaker;
 
 WriteMakefile(
     NAME         => 'App::access2csv',
-    VERSION_FROM => 'lib/App/access2csv.pm',
+    VERSION_FROM => 'lib/App/access2CSV.pm',
 
     EXE_FILES => [
         'bin/access2csv',
@@ -21,4 +21,5 @@ WriteMakefile(
         'Pod::Usage'   => 0,
     },
 
-  
+    LICENSE => 'perl',
+);
