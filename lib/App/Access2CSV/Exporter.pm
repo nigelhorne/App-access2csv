@@ -24,7 +24,7 @@ use Return::Set qw(set_return);
 use Sub::Private;
 use Sub::Protected;
 
-our $VERSION = '0.001';
+our $VERSION = '0.001.0';
 
 # Stop Carp from reporting errors against the access-control wrappers
 our @CARP_NOT = qw(Sub::Private Sub::Protected App::Access2CSV::I18N);
@@ -86,14 +86,14 @@ Readonly::Hash my %DEFAULTS => (
 # Constructor argument schema, shared by new() and the POD
 Readonly::Hash my %NEW_SCHEMA => (
 	output_dir  => { type => 'string', min => 1, optional => 1 },
-	tables      => { type => 'arrayref', optional => 1 },
+	tables      => { type => 'arrayref', element_type => 'string', optional => 1 },
 	overwrite   => { type => 'boolean', optional => 1 },
 	verbose     => { type => 'boolean', optional => 1 },
 	dry_run     => { type => 'boolean', optional => 1 },
 	show_counts => { type => 'boolean', optional => 1 },
 	progress    => { type => 'boolean', optional => 1 },
 	encoding    => { type => 'string', memberof => [@ENCODINGS], optional => 1 },
-	logger      => { type => 'object', optional => 1 },
+	logger      => { type => 'object', can => ['debug', 'info', 'warn'], optional => 1 },
 	language    => { type => 'string', optional => 1 },
 );
 
@@ -105,27 +105,134 @@ App::Access2CSV::Exporter - Export the tables of a Microsoft Access database to 
 
 =head1 VERSION
 
-Version 0.001
+Version 0.001.0
 
 =head1 SYNOPSIS
 
 	use App::Access2CSV::Exporter;
 
+	# 1. The simplest case: every table, into the current folder
+	my $exporter = App::Access2CSV::Exporter->new();
+	my $status = $exporter->run('shop.accdb');	# 0 = all OK, 1 = some failed
+
+	# 2. Some tables, into a folder, for Excel, replacing old files
 	my $exporter = App::Access2CSV::Exporter->new(
 		output_dir => 'exports',
+		tables     => ['Customers', 'Orders'],
 		encoding   => 'utf8-bom',
+		overwrite  => 1,
 	);
-	my $status = $exporter->run('database.accdb');
+	$exporter->run('shop.accdb');
+
+	# 3. Only look: print the table list and row counts, write nothing
+	App::Access2CSV::Exporter->new(dry_run => 1, show_counts => 1)->run('shop.accdb');
+
+	# 4. Inside a larger program: no progress lines, a log, and full
+	#    error handling
+	use Log::Abstraction;
+
+	my $exporter = App::Access2CSV::Exporter->new({
+		output_dir => '/srv/exports',
+		progress   => 0,
+		logger     => Log::Abstraction->new(logger => '/var/log/export.log'),
+	});
+	my $status = eval { $exporter->run('/data/shop.accdb') };
+	if(!defined $status) {
+		die "Nothing was exported: $@";	# for example, the file is missing
+	} elsif($status == 1) {
+		warn "Some tables were not exported; see the log\n";
+	}
 
 =head1 DESCRIPTION
 
-Drives the external mdbtools programs (C<mdb-tables>, C<mdb-export> and,
-optionally, C<mdb-count>) to write one CSV file per user table.
+This module does the real work of the C<access2csv> program.  It writes
+one CSV file for each table of a Microsoft Access database.
+
+It runs three programs from the B<mdbtools> package: C<mdb-tables> (to
+list the tables), C<mdb-export> (to get each table as CSV) and, only when
+row counts are wanted, C<mdb-count>.  They must be in your C<PATH>.
+
+Access's own internal tables (names starting with C<MSys>, C<USys> or
+C<~>) are skipped.
 
 Each file is first written to a hidden temporary file in the output
-directory and then renamed into place, so a failed export never leaves a
-truncated CSV behind and an existing file is only replaced when the new
-one is complete.
+folder, and renamed to its real name only when it is complete.  So a
+failed export never leaves a half-written CSV file, and an old file is
+only replaced by a complete new one.  New files get the usual
+permissions (0666 minus your umask).
+
+An exporter can be used for more than one C<run>.  Each C<run> starts
+again with the same file names, so running twice gives the same files.
+
+The rules for file names are described in
+L<App::Access2CSV/How the CSV files are named>.
+
+=head1 ENCODING
+
+=over 4
+
+=item * B<CSV data.>  mdbtools gives UTF-8.  With C<encoding> set to
+C<utf8> or C<utf8-bom> the bytes are copied exactly, so every character,
+including emoji and non-Latin scripts, is kept.  C<utf8-bom> also writes
+the three-byte UTF-8 "byte order mark" first, which Microsoft Excel
+needs.  With C<cp1252>, each line is converted to Windows-1252; if a line
+has a character that Windows-1252 does not have (for example Greek,
+Chinese or an emoji), that table fails and nothing is written for it.
+
+=item * B<Database path and output_dir.>  These are passed to the operating
+system unchanged.  Give them as byte strings (the form you get from
+C<@ARGV> or C<readdir>).  Non-ASCII names work on systems whose file names
+are UTF-8, such as Linux and macOS.
+
+=item * B<Table names> (in C<tables>).  They are compared with the names
+that C<mdb-tables> prints, which are UTF-8 bytes.  So give UTF-8 byte
+strings, not decoded Perl character strings.  If you have a decoded
+string, use C<Encode::encode('UTF-8', $name)> first.  The CSV file name is
+made from the same bytes, so non-ASCII names and emoji are kept.
+
+=item * B<Messages.>  All messages are plain ASCII English.
+
+=back
+
+=head1 COMMON PITFALLS
+
+=over 4
+
+=item * B<undef means "use the default", not "false".>  In C<new>,
+C<< overwrite => undef >> is the same as not giving C<overwrite> at all.
+To switch something off, give C<0>.
+
+=item * B<An empty table list exports nothing.>  C<< tables => undef >>
+(or no C<tables>) means "all tables".  C<< tables => [] >> means "no
+tables": nothing is exported, and C<run> returns 0.
+
+=item * B<Table names are case-sensitive.>  C<'orders'> does not match the
+table C<Orders>.  Names that do not match any table give a warning.
+
+=item * B<run can croak.>  C<run> returns 1 when some tables fail, but it
+croaks (throws an exception) when nothing can be exported at all: the
+database is missing or unreadable, mdbtools is not installed, or the
+output folder cannot be created.  Wrap C<run> in C<eval> if your program
+must keep going.
+
+=item * B<run may change the show_counts setting.>  If C<show_counts> is
+on but C<mdb-count> cannot be found, C<run> warns and switches
+C<show_counts> off for this exporter.
+
+=item * B<Settings are copied, not shared.>  C<new> makes its own copy of
+the C<tables> list; changing your array later has no effect.  Settings are
+not merged in depth: a new C<tables> list replaces the default completely.
+
+=item * B<Warnings go through carp.>  Failed tables and unknown table names
+are reported with C<carp>, so they appear on standard error (or in your
+C<$SIG{__WARN__}> handler) even when a logger is given.
+
+=item * B<Load the module with use, not require.>  Protection of the
+private methods is set up at compile time.  After a run-time
+C<require> Perl prints "Too late to run CHECK block" and the protection is
+missing.
+
+=back
 
 =head1 METHODS
 
@@ -133,44 +240,49 @@ one is complete.
 
 =head3 Purpose
 
-Create an exporter with the given settings.
+Make a new exporter with your settings.  Nothing is checked on disk yet.
 
 =head3 Arguments
 
-Named arguments, as a list or a hashref.  All are optional.
+Named arguments, either as a list or as one hash reference.  All of them
+are optional.  An argument whose value is C<undef> is ignored, so its
+default is used.
 
 =over 4
 
-=item C<output_dir> - directory to write to (default: the current directory)
+=item C<output_dir> - the folder for the CSV files.  Default: the current folder.
 
-=item C<tables> - arrayref of table names to export (default: all user tables)
+=item C<tables> - an array reference of table names to export.  Default:
+all tables.  An empty array means no tables.
 
-=item C<overwrite> - replace existing CSV files (default: false)
+=item C<overwrite> - true to replace CSV files that already exist.  Default: false.
 
-=item C<verbose> - log extra detail (default: false)
+=item C<verbose> - true to log extra detail.  Default: false.
 
-=item C<dry_run> - list what would be written and write nothing (default: false)
+=item C<dry_run> - true to only print what would be written.  Default: false.
 
-=item C<show_counts> - report row counts using C<mdb-count> (default: false)
+=item C<show_counts> - true to report row counts (needs C<mdb-count>).  Default: false.
 
-=item C<progress> - print C<[n/total] table> progress to STDERR (default: true)
+=item C<progress> - true to print C<[n/total] table> lines to standard
+error.  Default: true.
 
-=item C<encoding> - C<utf8>, C<utf8-bom> or C<cp1252> (default: C<utf8>)
+=item C<encoding> - C<utf8>, C<utf8-bom> or C<cp1252>.  Default: C<utf8>.
 
-=item C<logger> - an object with C<info>, C<warn> and C<debug> methods,
-for example a L<Log::Abstraction> (default: no logging)
+=item C<logger> - an object with C<debug>, C<info> and C<warn> methods,
+such as a L<Log::Abstraction> object.  Default: no logging.
 
-=item C<language> - message language code, overriding the locale
+=item C<language> - a language code such as C<en> for messages.  Default:
+taken from the locale (see L<App::Access2CSV::I18N>).
 
 =back
 
 =head3 Returns
 
-A blessed C<App::Access2CSV::Exporter>.
+A new C<App::Access2CSV::Exporter> object.
 
 =head3 Side Effects
 
-None.  Nothing is checked on disk until L</run>.
+None.
 
 =head3 Usage
 
@@ -178,7 +290,7 @@ None.  Nothing is checked on disk until L</run>.
 
 =head3 EXAMPLE
 
-	# Export two tables as Windows-1252, replacing earlier exports
+	# Export two tables as Windows-1252, replacing older files, with a log
 	my $exporter = App::Access2CSV::Exporter->new(
 		output_dir => 'out',
 		tables     => ['Customers', 'Orders'],
@@ -193,46 +305,40 @@ None.  Nothing is checked on disk until L</run>.
 
 	{
 		output_dir  => { type => 'string', min => 1, optional => 1 },
-		tables      => { type => 'arrayref', optional => 1 },
+		tables      => { type => 'arrayref', element_type => 'string', optional => 1 },
 		overwrite   => { type => 'boolean', optional => 1 },
 		verbose     => { type => 'boolean', optional => 1 },
 		dry_run     => { type => 'boolean', optional => 1 },
 		show_counts => { type => 'boolean', optional => 1 },
 		progress    => { type => 'boolean', optional => 1 },
 		encoding    => { type => 'string', memberof => ['utf8', 'utf8-bom', 'cp1252'], optional => 1 },
-		logger      => { type => 'object', optional => 1 },
+		logger      => { type => 'object', can => ['debug', 'info', 'warn'], optional => 1 },
 		language    => { type => 'string', optional => 1 },
 	}
 
 =head4 Output
 
-	{ type => 'object', isa => 'App::Access2CSV::Exporter' }
+	{
+		type => 'object',
+		isa  => 'App::Access2CSV::Exporter',
+	}
 
 =head3 MESSAGES
 
-	+--------------------------------------+------------------------------+-----------------------------+
-	| Message                              | Meaning                      | Resolution                  |
-	+--------------------------------------+------------------------------+-----------------------------+
-	| Unknown parameter 'X' (fatal)        | X is not a known setting     | Remove or correct X         |
-	| Parameter 'encoding' (X) must be one | Unsupported encoding         | Use utf8, utf8-bom, cp1252  |
-	|  of utf8, utf8-bom, cp1252 (fatal)   |                              |                             |
-	| Parameter 'logger' must be an object | logger is not blessed        | Pass a logger object        |
-	+--------------------------------------+------------------------------+-----------------------------+
+These messages come from L<Params::Validate::Strict>.  They are fatal and
+are not translated.
 
-These come from L<Params::Validate::Strict> and are not translated.
-
-=head3 FORMAL SPECIFICATION
-
-	┌─ NewExporter ──────────────────────────────────────────────
-	│ args? : SETTING ⇸ VALUE
-	│ self! : Exporter
-	├────────────────────────────────────────────────────────────
-	│ dom args? ⊆ dom NEW_SCHEMA
-	│ ∀ k : dom args? • valid(NEW_SCHEMA(k), args?(k))
-	│ self!.settings = DEFAULTS ⊕ args?
-	│ self!.used_names = ∅
-	│ self!.programs = ∅
-	└────────────────────────────────────────────────────────────
+	+--------------------------------------+------------------------------+-----------------------------+
+	| Message                              | Meaning                      | What to do                  |
+	+--------------------------------------+------------------------------+-----------------------------+
+	| Unknown parameter 'X'                | X is not a known setting     | Remove X, or fix its        |
+	|                                      |                              | spelling                    |
+	| Parameter 'encoding' (X) must be one | This encoding is not         | Use utf8, utf8-bom or       |
+	|  of utf8, utf8-bom, cp1252           | supported                    | cp1252                      |
+	| Parameter 'logger' must be an object | logger is not an object      | Give a logger object        |
+	| Parameter 'tables' must be ...       | tables is not an array       | Give an array reference     |
+	|                                      | reference                    |                             |
+	+--------------------------------------+------------------------------+-----------------------------+
 
 =cut
 
@@ -256,43 +362,61 @@ sub new {
 
 =head3 Purpose
 
-Export every selected user table of a database to CSV, or, in dry-run
-mode, print what would be exported.
+Export the selected tables of one database to CSV files.  In dry-run mode,
+only print what would be exported.
 
 =head3 Arguments
 
 =over 4
 
-=item C<database> (string, required) - path to the C<.mdb> or C<.accdb> file
+=item C<database> (string, required) - the path of the C<.mdb> or C<.accdb> file
 
 =back
 
 =head3 Returns
 
-An exit status: C<0> if every table was exported (or in dry-run mode),
-C<1> if at least one table failed.
+C<0> if every selected table was exported, or in dry-run mode.
+C<1> if at least one table was not exported (the others were).
 
 =head3 Side Effects
 
-Creates the output directory, writes CSV files, prints progress to STDERR
-and the dry-run listing to STDOUT, writes to the logger, and warns (via
-C<carp>) about each failed table and about unknown C<tables>.
+=over 4
 
-Croaks, without writing anything, if the database cannot be read or a
-required mdbtools program is missing.
+=item * Creates the output folder if needed (not in dry-run mode).
+
+=item * Writes one CSV file per table (not in dry-run mode).
+
+=item * Prints progress lines to standard error, if C<progress> is on.
+
+=item * Prints the dry-run list to standard output, in dry-run mode.
+
+=item * Sends messages to the logger, if there is one.
+
+=item * Warns (with C<carp>) about each table that failed, about unknown
+names in C<tables>, and about a missing C<mdb-count>.
+
+=item * Croaks, before writing anything, if the database cannot be read, a
+needed mdbtools program is missing, C<mdb-tables> fails, or the output
+folder cannot be created.
+
+=back
 
 =head3 Usage
 
-	exit $exporter->run('database.accdb');
+	exit $exporter->run('shop.accdb');
 
 =head3 EXAMPLE
 
 	my $exporter = App::Access2CSV::Exporter->new(output_dir => 'out');
+
+	# eval catches the fatal errors; the return value covers the rest
 	my $status = eval { $exporter->run('shop.accdb') };
 	if(!defined $status) {
-		print STDERR "Export aborted: $@";
+		print STDERR "Nothing was exported: $@";
 	} elsif($status) {
-		print STDERR "Some tables failed; see the log\n";
+		print STDERR "Some tables failed; see the warnings above\n";
+	} else {
+		print "Done\n";
 	}
 
 =head3 API SPECIFICATION
@@ -300,77 +424,79 @@ required mdbtools program is missing.
 =head4 Input
 
 	{
-		database => { type => 'string', min => 1 },
+		database => {
+			type     => 'string',
+			min      => 1,
+			optional => 0,
+		},
 	}
 
 =head4 Output
 
-	{ type => 'integer', min => 0, max => 1 }
+	{
+		type => 'integer',
+		min  => 0,
+		max  => 1,
+	}
 
 =head3 MESSAGES
 
-	+-----------------------------------------+------------------------------+-------------------------------+
-	| Message                                 | Meaning                      | Resolution                    |
-	+-----------------------------------------+------------------------------+-------------------------------+
-	| Cannot read database F: E (fatal)       | F does not exist or cannot   | Check the path                |
-	|                                         | be stat()ed; E is the OS     |                               |
-	|                                         | error                        |                               |
-	| Database F is not a regular file (fatal)| F is a directory, etc.       | Give the database file        |
-	| Database F is not readable (fatal)      | No read permission           | Fix the permissions           |
-	| Required program not found in PATH: P   | mdbtools not installed       | Install mdbtools / fix PATH   |
-	|  (fatal)                                |                              |                               |
-	| P failed with exit status N: E (fatal   | mdb-tables failed; per table | Check the database is a valid |
-	|  for mdb-tables, per-table otherwise)   | for mdb-export/mdb-count     | Access file                   |
-	| P was killed by signal N                | As above, but by a signal    | Check system resources        |
-	| Cannot create output directory D: E     | mkdir failed                 | Check permissions / path      |
-	|  (fatal)                                |                              |                               |
-	| Tables not found in database: T (warn)  | --table named unknown tables | Check spelling and case       |
-	| mdb-count not found in PATH; row counts | --show-counts without        | Install mdb-count             |
-	|  are unavailable (warn)                 | mdb-count                    |                               |
-	| FAILED: T: E (warn, logged)             | Table T could not be exported| See E                         |
-	| Output file already exists: F (per      | F exists and --overwrite was | Use --overwrite or another    |
-	|  table)                                 | not given                    | --output-dir                  |
-	| Table T, line N: cannot be represented  | A character has no cp1252    | Use --encoding utf8           |
-	|  in cp1252 (per table)                  | equivalent                   |                               |
-	| Table T, line N: output of mdb-export   | mdbtools emitted bytes that  | Check MDB_ICONV / the         |
-	|  is not valid UTF-8 (per table)         | are not UTF-8                | database's code page          |
-	| Cannot write F: E (per table)           | Rename or chmod failed       | Check permissions / space     |
-	+-----------------------------------------+------------------------------+-------------------------------+
+"fatal" means C<run> croaks and nothing is exported.  "per table" means
+only that table fails; C<run> warns, logs, and carries on.
 
-=head3 FORMAL SPECIFICATION
-
-	┌─ Run ──────────────────────────────────────────────────────
-	│ ΔFileSystem ; ΞExporter
-	│ database? : PATH ; status! : {0, 1}
-	│ all, selected : iseq TABLE ; failed : ℙ TABLE
-	├────────────────────────────────────────────────────────────
-	│ database? ∈ readableFiles
-	│ {mdb-tables, mdb-export} ⊆ dom PATH
-	│ all = sort({ t : tablesOf(database?) | ¬ system(t) })
-	│ selected = (if tables = ∅ then all else all ↾ ran tables)
-	│ dry_run ⇒ files' = files ∧ status! = 0
-	│ ¬dry_run ⇒
-	│   failed = { t : ran selected | ¬ exported(t) } ∧
-	│   (∀ t : ran selected \ failed •
-	│      files'(output_dir / csvName(t)) = encode(encoding, csv(t))) ∧
-	│   status! = (if failed = ∅ then 0 else 1)
-	└────────────────────────────────────────────────────────────
+	+-----------------------------------------+------------------------------+-------------------------------+
+	| Message                                 | Meaning                      | What to do                    |
+	+-----------------------------------------+------------------------------+-------------------------------+
+	| Cannot read database F: E (fatal)       | F does not exist, or cannot  | Check the path                |
+	|                                         | be reached; E is the reason  |                               |
+	|                                         | from the operating system    |                               |
+	| Database F is not a regular file (fatal)| F is a folder or a device    | Give the database file        |
+	| Database F is not readable (fatal)      | No permission to read F      | Fix the permissions           |
+	| Required program not found in PATH: P   | mdbtools is not installed,   | Install mdbtools, or fix PATH |
+	|  (fatal)                                | or not in PATH               |                               |
+	| mdb-tables failed with exit status N: E | mdbtools cannot read the     | Check that F is a real Access |
+	|  (fatal)                                | file                         | database                      |
+	| Cannot create output directory D: E     | The folder cannot be made    | Check permissions and path    |
+	|  (fatal)                                |                              |                               |
+	| Tables not found in database: T         | Names in tables are not in   | Check spelling and case       |
+	|  (warning)                              | the database                 |                               |
+	| mdb-count not found in PATH; row counts | show_counts is on, but       | Install mdb-count, or turn    |
+	|  are unavailable (warning)              | mdb-count is missing         | show_counts off               |
+	| FAILED: T: E (warning, logged)          | Table T was not exported,    | See E, one of the messages    |
+	|                                         | because of E                 | below                         |
+	| Output file already exists: F (use      | F exists and overwrite is    | Set overwrite, or use another |
+	|  --overwrite to replace it) (per table) | off                          | output_dir                    |
+	| mdb-export failed with exit status N: E | mdbtools could not read this | Check the table in Access     |
+	|  (per table)                            | table                        |                               |
+	| P was killed by signal N (per table,    | The program was stopped from | Check memory and system       |
+	|  or fatal for mdb-tables)               | outside                      | limits                        |
+	| Table T, line N: cannot be represented  | A character is not in        | Use utf8 or utf8-bom          |
+	|  in cp1252 (per table)                  | Windows-1252                 |                               |
+	| Table T, line N: output of mdb-export   | mdbtools gave bytes that are | Check the MDB_ICONV setting   |
+	|  is not valid UTF-8 (per table)         | not UTF-8                    |                               |
+	| Cannot write F: E (per table)           | The finished file could not  | Check permissions and free    |
+	|                                         | be renamed into place        | disk space                    |
+	+-----------------------------------------+------------------------------+-------------------------------+
 
 =head3 PSEUDOCODE
 
-	validate database
-	croak unless database is a readable regular file
-	locate mdb-tables and mdb-export (croak if missing); mdb-count if wanted
-	forget file names allocated by any earlier run
-	tables := sorted user tables, filtered by --table (warn about unknowns)
+	check the argument
+	stop (croak) unless the database is a readable file
+	find mdb-tables and mdb-export (croak if missing),
+	     and mdb-count if row counts are wanted (warn if missing)
+	forget the file names given out by any earlier run
+	tables := the sorted user tables, filtered by "tables"
+	          (warn about names that are not found)
 	if dry run:
-		print table -> file listing; return 0
-	create output directory (croak on failure)
-	for each table (numbered n of total):
-		print progress to STDERR if wanted
-		try export table; on failure warn, log, count failure
-	log summary
-	return failures ? 1 : 0
+		print the table -> file list
+		return 0
+	create the output folder (croak if that fails)
+	for each table:
+		print "[n/total] table" if progress is on
+		try to export the table
+		if that failed: warn, log, and count the failure
+	log the summary
+	return 1 if any table failed, else 0
 
 =cut
 
@@ -833,45 +959,167 @@ __END__
 
 =over 4
 
-=item * mdb-export is assumed to emit UTF-8, which is what mdbtools does
-when built with iconv (the default).  If the C<MDB_ICONV> environment
+=item * mdbtools is expected to give UTF-8.  This is what it does when it is
+built with iconv (the normal case).  If the C<MDB_ICONV> environment
 variable selects another character set, C<cp1252> conversion reports
 invalid UTF-8.
 
-=item * C<cp1252> conversion refuses (and fails the table) at the first
-character with no Windows-1252 equivalent, rather than silently
-substituting C<?>.  Line numbers count physical lines, so a memo field
-with embedded newlines spans several lines.
+=item * C<cp1252> conversion stops at the first character that Windows-1252
+does not have, and that table fails.  It never writes C<?> instead.  Line
+numbers count lines in the file, so a text field that contains line
+breaks covers several lines.
 
-=item * The "already exists" check and the final rename are not one atomic
-operation; another process creating the same file in between would be
-overwritten.
+=item * Checking that a file already exists and renaming the new file into
+place are two separate steps.  If another program creates the same file
+between them, that file is replaced.
 
 =item * File names are made safe for Windows, macOS and Unix, but are not
-truncated; Access limits table names to 64 characters, well within
-common file-name limits.
+shortened.  Access table names are at most 64 characters, which is well
+within normal limits.
 
-=item * The table filter is case-sensitive, as mdb-export is.
+=item * Row counts need one extra C<mdb-count> run for each table.
 
-=item * Row counts cost one extra mdb-count process per table.
-
-=item * Private and protected methods are enforced by L<Sub::Private> and
-L<Sub::Protected> only when this module is loaded at compile time
-(C<use>).  Under C<$ENV{HARNESS_ACTIVE}> the checks are bypassed so that
-white-box tests can call them.
+=item * The private and protected methods are protected by L<Sub::Private>
+and L<Sub::Protected> only when this module is loaded with C<use>.  When
+C<$ENV{HARNESS_ACTIVE}> is set (under C<prove>), the checks are turned
+off so that tests can call these methods.
 
 =back
 
 =head1 SEE ALSO
 
-L<App::Access2CSV>, L<https://github.com/mdbtools/mdbtools>
+L<App::Access2CSV>, L<App::Access2CSV::I18N>, L<https://github.com/mdbtools/mdbtools>
 
 =head1 AUTHOR
 
-Nigel Horne, C<< <nigel.horne at gmail.com> >>
+Nigel Horne, C<< <njh at nigelhorne.com> >>
 
 =head1 LICENSE AND COPYRIGHT
 
 This program is released under the same terms as Perl itself.
+
+=head1 FORMAL SPECIFICATION
+
+These schemas use the Z notation.  C<?> marks an input, C<!> an output,
+C<'> the state after the operation, "Delta" a changed state and "Xi" an
+unchanged state.  You do not need to read this section to use the module.
+
+	┌─ Exporter ─────────────────────────────────────────────────
+	│ settings : SETTING ⇸ VALUE
+	│ used_names : ℙ FILENAME
+	│ programs : PROGRAM ⇸ PATH
+	├────────────────────────────────────────────────────────────
+	│ settings(encoding) ∈ {utf8, utf8-bom, cp1252}
+	│ ∀ n₁, n₂ : used_names • lower(n₁) = lower(n₂) ⇒ n₁ = n₂
+	└────────────────────────────────────────────────────────────
+
+=head2 new
+
+	┌─ NewExporter ──────────────────────────────────────────────
+	│ Exporter'
+	│ args? : SETTING ⇸ VALUE
+	├────────────────────────────────────────────────────────────
+	│ dom args? ⊆ dom NEW_SCHEMA
+	│ ∀ k : dom args? • valid(NEW_SCHEMA(k), args?(k))
+	│ settings' = DEFAULTS ⊕ { k : dom args? | args?(k) ≠ undef • k ↦ args?(k) }
+	│ used_names' = ∅
+	│ programs' = ∅
+	└────────────────────────────────────────────────────────────
+
+=head2 run
+
+	┌─ Run ──────────────────────────────────────────────────────
+	│ ΔExporter ; ΔFileSystem
+	│ database? : PATH ; status! : {0, 1}
+	│ all, selected : iseq TABLE ; failed : ℙ TABLE
+	├────────────────────────────────────────────────────────────
+	│ database? ∈ readableFiles
+	│ {mdb-tables, mdb-export} ⊆ dom PATH
+	│ all = sort({ t : tablesOf(database?) | ¬ system(t) })
+	│ selected = (if tables ∉ dom settings then all
+	│             else all ↾ ran settings(tables))
+	│ settings(dry_run) ⇒ files' = files ∧ status! = 0
+	│ ¬ settings(dry_run) ⇒
+	│   failed = { t : ran selected | ¬ exported(t) } ∧
+	│   (∀ t : ran selected \ failed •
+	│      files'(output_dir / csvName(t)) = encode(encoding, csv(t))) ∧
+	│   (∀ t : failed • files'(output_dir / csvName(t)) = files(output_dir / csvName(t))) ∧
+	│   status! = (if failed = ∅ then 0 else 1)
+	└────────────────────────────────────────────────────────────
+
+	┌─ RunFatal ─────────────────────────────────────────────────
+	│ ΞFileSystem
+	│ database? : PATH ; error! : MESSAGE
+	├────────────────────────────────────────────────────────────
+	│ database? ∉ readableFiles ∨ {mdb-tables, mdb-export} ⊈ dom PATH
+	│   ∨ mdbTablesFails(database?)
+	│ error! ≠ ∅
+	└────────────────────────────────────────────────────────────
+
+	ExporterRun ≙ Run ∨ RunFatal
+
+=head1 STATE DIAGRAM
+
+The life of one exporter object, and of one call to C<run>.  Each box is
+a state.  Each arrow shows what causes the change, and what happens on
+the way.
+
+	            new(%settings)
+	            action: validate settings, apply defaults
+	                  |
+	                  v
+	          +----------------+ <------------------------------------+
+	          |     READY      |                                      |
+	          +----------------+                                      |
+	                  | run($database)                                |
+	                  v                                               |
+	          +----------------+  database missing or unreadable,    |
+	          |   CHECKING     |  mdb-tables/mdb-export not found    |
+	          | database and   |------------------------------+       |
+	          | programs       |                              |       |
+	          +----------------+                              |       |
+	                  | OK; action: forget old file names;    |       |
+	                  |   warn if mdb-count is missing and    |       |
+	                  |   switch show_counts off              |       |
+	                  v                                       |       |
+	          +----------------+  mdb-tables fails            |       |
+	          |    LISTING     |------------------------------+       |
+	          | tables         |                              |       |
+	          +----------------+                              |       |
+	                  | action: drop system tables, sort,     |       |
+	                  |   filter by "tables", warn about      |       |
+	                  |   unknown names                       |       |
+	          +-------+--------+                              |       |
+	 dry_run  |                | not dry_run                  |       |
+	          v                v                              |       |
+	 +----------------+  +----------------+  mkdir fails      |       |
+	 |    DRY RUN     |  |   PREPARING    |-------------------+       |
+	 | print the list |  | output folder  |                   |       |
+	 | to STDOUT      |  +----------------+                   |       |
+	 +----------------+          | folder exists             v       |
+	          |                  v                    +--------------+ |
+	          |          +----------------+           |    FATAL     | |
+	          |          |   EXPORTING    |<--+       | croak; no    | |
+	          |          | one table      |   |       | file written |-+
+	          |          +----------------+   |       +--------------+
+	          |            |           |      | next table
+	          |   success  |           | failure (file exists,
+	          |   action:  |           |   mdb-export fails, bad
+	          |   rename   |           |   character, ...)
+	          |   temp file|           |   action: delete temp file,
+	          |   into     |           |   carp, log, count failure
+	          |   place,   |           |      |
+	          |   log      |           +------+
+	          |            +------------------+
+	          |                  | no tables left
+	          |                  v
+	          |          +----------------+
+	          |          |    SUMMARY     |  action: log "Processed N tables,
+	          |          +----------------+          M failed"
+	          |             |          |
+	          v             v          v
+	      return 0      return 0    return 1
+	    (to READY)     (M = 0)      (M > 0)
+	                  (to READY)   (to READY)
 
 =cut

@@ -19,7 +19,7 @@ use Readonly;
 use Return::Set qw(set_return);
 use Sub::Private;
 
-our $VERSION = '0.001';
+our $VERSION = '0.001.0';
 
 # Stop Carp from reporting errors against the access-control wrappers
 our @CARP_NOT = qw(Sub::Private Sub::Protected App::Access2CSV::I18N);
@@ -59,29 +59,80 @@ App::Access2CSV - Export the tables of a Microsoft Access database to CSV files
 
 =head1 VERSION
 
-Version 0.001
+Version 0.001.0
 
 =head1 SYNOPSIS
 
-	access2csv database.accdb
+	# Export every table to the current directory
+	access2csv shop.accdb
 
-	access2csv --dry-run --show-counts database.accdb
+	# See what would be written, with row counts, without writing anything
+	access2csv --dry-run --show-counts shop.accdb
 
-	access2csv --output-dir exports --table Customers --table Orders database.mdb
+	# Export only two tables, into a folder called "exports"
+	access2csv --output-dir exports --table Customers --table Orders shop.mdb
 
-	access2csv --encoding utf8-bom --overwrite --no-log database.accdb
+	# Make files that Excel opens correctly, replace old files, no log file
+	access2csv --encoding utf8-bom --overwrite --no-log shop.accdb
+
+	# Nightly job: quiet, with a log in a fixed place, and stop on failure
+	access2csv --no-progress --log /var/log/access2csv.log \
+		--output-dir /srv/exports --overwrite shop.accdb || exit 1
 
 =head1 DESCRIPTION
 
-C<access2csv> writes one CSV file per user table of an Access
-(C<.mdb> / C<.accdb>) database, using the mdbtools programs
-C<mdb-tables> and C<mdb-export>, which must be in your C<PATH>.
-C<mdb-count> is also used if you ask for row counts.
+Microsoft Access keeps its data in C<.mdb> or C<.accdb> files.
+C<access2csv> reads one of these files and writes one CSV file
+(comma-separated values, a plain-text table) for each table in it.
 
-Access's own system tables (C<MSys*>, C<USys*> and C<~*>) are skipped.
-Each file is named after its table, with characters that are illegal in
-file names replaced by C<_>; if two tables would map to the same file
-name (ignoring case), later ones get C<_2>, C<_3>, ... suffixes.
+It does not read the Access file itself.  It runs three small programs
+from the free B<mdbtools> package:
+
+=over 4
+
+=item * C<mdb-tables> - to get the list of tables
+
+=item * C<mdb-export> - to get the data of each table as CSV
+
+=item * C<mdb-count> - to count rows (only when you use B<--show-counts>)
+
+=back
+
+These programs must be installed and must be in your C<PATH>.
+
+Access also keeps its own internal tables in the file.  Their names start
+with C<MSys>, C<USys> or C<~>.  They are skipped.
+
+=head2 How the CSV files are named
+
+Each file has the name of its table plus C<.csv>, for example
+C<Orders.csv>.  Some characters are not allowed in file names on some
+computers (C<< < > : " / \ | ? * >> and control characters).  They are
+changed to C<_>.  Spaces and dots at the end, and spaces at the start,
+are removed.  A name such as C<CON> or C<NUL> (reserved on Windows) gets a
+C<_> in front.  An empty name becomes C<unnamed>.
+
+If two tables would get the same file name, the second one gets C<_2>,
+the third C<_3>, and so on.  Upper and lower case count as the same here,
+because Windows and macOS treat C<Orders.csv> and C<ORDERS.csv> as one file.
+
+=head2 How files are written
+
+Each file is first written to a hidden temporary file (its name starts
+with C<.access2csv->) in the output directory.  Only when it is complete
+is it renamed to its real name.  So if something goes wrong, you never
+get a half-written CSV file, and an old file is only replaced by a
+complete new one.
+
+=head1 USING FROM PERL
+
+The program is a very thin wrapper.  You can call the same code from Perl:
+
+	use App::Access2CSV;
+
+	my $status = App::Access2CSV->run('--no-log', '--output-dir', 'out', 'shop.accdb');
+
+For more control, use L<App::Access2CSV::Exporter> directly.
 
 =head1 OPTIONS
 
@@ -89,70 +140,149 @@ name (ignoring case), later ones get C<_2>, C<_3>, ... suffixes.
 
 =item B<--output-dir> I<DIR>
 
-Directory to write the CSV files to; created if necessary.  Default: the
-current directory.
+The folder to write the CSV files to.  It is created if it does not exist.
+Default: the current folder.
 
 =item B<--table> I<NAME>
 
-Export only this table.  May be given more than once.  Names are
-case-sensitive; unknown names produce a warning.
+Export only this table.  You can use this option more than once.
+Names must match exactly, including upper and lower case.  A name that is
+not in the database gives a warning.
 
 =item B<--overwrite>
 
-Replace CSV files that already exist.  Without it, such tables fail.
+Replace CSV files that already exist.  Without this option, a table whose
+CSV file already exists is not exported, and it counts as a failure.
 
 =item B<--verbose>
 
-Log where the mdbtools programs were found, and show file and line
-numbers in fatal error messages.
+Write more detail to the log (where each mdbtools program was found).
+Also show the Perl file and line number in fatal error messages.
 
 =item B<--dry-run>
 
-List the tables and the files they would be written to, then stop.
-Nothing is created, not even the output directory.
+Only print a list of the tables and the file names they would get.
+Nothing is written.  The output folder is not created.
 
 =item B<--show-counts>
 
-Show row counts in the dry-run listing and in the log.  Needs
-C<mdb-count>.
+Show the number of rows of each table: in the dry-run list, and in the
+log.  This needs C<mdb-count>.  Without it you get a warning, and the
+export goes on without counts.
 
 =item B<--no-progress>
 
-Do not print C<[n/total] table> progress lines to STDERR.
+Do not print the C<[1/5] Customers> progress lines.  (These lines go to
+standard error, not standard output.)
 
 =item B<--encoding> I<utf8|utf8-bom|cp1252>
 
-Character encoding of the CSV files.  C<utf8-bom> adds a byte order mark,
-which helps Excel recognise UTF-8.  C<cp1252> is Windows-1252; a table
-containing a character with no Windows-1252 equivalent fails.
+The character encoding of the CSV files.  See L</ENCODING>.
 Default: C<utf8>.
 
 =item B<--log> I<FILE>
 
-Append a log to I<FILE>.  Default: F<access2csv.log> in the current
-directory.
+Add log messages to the end of I<FILE>.  Default: F<access2csv.log> in
+the current folder.  An empty name (C<--log ''>) means no log.
 
 =item B<--no-log>
 
 Do not write a log file.
 
-=item B<--help>
+=item B<--help>, B<-h>
 
-Print the synopsis and options, then exit.
+Print the synopsis and the options, then stop.
 
 =item B<--man>
 
-Print the full manual, then exit.
+Print this whole manual, then stop.
 
 =back
 
 =head1 EXIT STATUS
 
-	0  every selected table was exported (or --dry-run / --help / --man)
-	1  at least one table could not be exported
-	2  the command line was invalid
-	3  a fatal error stopped the export before it began, e.g. the database
-	   is missing or mdbtools is not installed
+The program ends with one of these numbers.  Scripts can test it.
+
+	0  Every selected table was exported.  Also used for --dry-run,
+	   --help and --man.
+	1  At least one table was not exported.  The other tables were.
+	2  The command line was wrong, for example an unknown option or no
+	   database name.
+	3  A fatal error happened before any table was exported, for example
+	   the database does not exist or mdbtools is not installed.
+
+=head1 ENCODING
+
+=head2 The data in the CSV files
+
+mdbtools gives the table data as UTF-8, the encoding that can hold every
+character, including accented letters, Chinese and Japanese text, and
+emoji.
+
+=over 4
+
+=item * C<utf8> (the default) - the data is copied exactly as mdbtools
+gives it.  Every character, including emoji, is kept.
+
+=item * C<utf8-bom> - the same, plus three bytes at the very start of each
+file (a "byte order mark").  These bytes tell Microsoft Excel that the file
+is UTF-8.  Without them, Excel may show accented letters wrongly.  Some
+other programs show the mark as strange characters in the first column
+name.
+
+=item * C<cp1252> - Windows-1252, an old Western European encoding.  It has
+only 256 characters: English letters, most Western European accented
+letters, and a few symbols such as the Euro sign.  It has no Greek,
+Cyrillic, Chinese, Japanese or emoji.  If a table contains a character
+that Windows-1252 cannot hold, that table is B<not> exported, and the
+error message gives the line number.  Nothing is silently replaced.
+
+=back
+
+=head2 Names on the command line
+
+Database paths, folder names, log file names and table names are used
+exactly as the operating system gives them to the program (as bytes).
+On Linux and macOS, where the terminal uses UTF-8, names with accented
+letters, non-Latin scripts and emoji work.  On Windows, the command line
+uses the system code page, so names outside that code page may not work.
+
+=head2 Messages
+
+All messages that the program prints and logs are in plain ASCII English.
+
+=head1 COMMON PITFALLS
+
+=over 4
+
+=item * B<A log file appears in the current folder.>  By default the log is
+F<access2csv.log> in the folder you run the program from.  Use B<--log> to
+choose another place, or B<--no-log>.
+
+=item * B<The second run fails.>  If the CSV files already exist, each table
+fails (exit status 1) unless you give B<--overwrite>.
+
+=item * B<--table does not find my table.>  Table names are case-sensitive:
+C<--table orders> does not match C<Orders>.  Use B<--dry-run> to see the
+exact names.
+
+=item * B<A file is called Orders_2.csv.>  Two tables had names that give
+the same file name (for example C<Orders> and C<ORDERS>, or C<A/B> and
+C<A:B>).
+
+=item * B<Progress lines appear even though I redirected the output.>
+Progress lines go to standard error.  Use B<--no-progress>, or redirect
+standard error too (C<2E<gt>/dev/null>).
+
+=item * B<run() does not end the program.>  When calling from Perl,
+C<< App::Access2CSV->run(...) >> returns the exit status.  It does not
+call C<exit>.  Write C<< exit App::Access2CSV->run(@ARGV) >> if you want
+the program to end.
+
+=item * B<Pass a list, not an array reference.>  Write
+C<< App::Access2CSV->run(@args) >>, not C<< App::Access2CSV->run(\@args) >>.
+
+=back
 
 =head1 METHODS
 
@@ -160,24 +290,35 @@ Print the full manual, then exit.
 
 =head3 Purpose
 
-The whole of the C<access2csv> program: parse the command line, set up
-logging and run an L<App::Access2CSV::Exporter>.
+This is the whole C<access2csv> program.  It reads the command-line
+options, opens the log, and runs an L<App::Access2CSV::Exporter>.
 
 =head3 Arguments
 
-The command-line arguments, as a list (normally C<@ARGV>).  The list is
-copied, so the caller's array is not changed.
+The command-line arguments, as a list of strings (normally C<@ARGV>).
+Your array is copied first, so it is not changed.
 
 =head3 Returns
 
-The exit status described in L</EXIT STATUS>.  C<run> never calls
-C<exit> itself, which makes it easy to test.
+A number from 0 to 3, as described in L</EXIT STATUS>.
+C<run> never calls C<exit> itself.
 
 =head3 Side Effects
 
-Everything the exporter does (see L<App::Access2CSV::Exporter/run>), plus:
-prints help or usage text, prints fatal errors to STDERR and appends to
-the log file.
+=over 4
+
+=item * Everything that L<App::Access2CSV::Exporter/run> does: it creates
+the output folder, writes CSV files, and prints progress to standard error.
+
+=item * It prints help or usage text (help to standard output, usage errors
+to standard error).
+
+=item * It prints a fatal error, if there is one, to standard error as one
+line that starts with C<access2csv:>.
+
+=item * It creates or adds to the log file, unless logging is off.
+
+=back
 
 =head3 Usage
 
@@ -187,10 +328,17 @@ the log file.
 
 	use App::Access2CSV;
 
-	# Export to ./out without a log file, and act on the result
+	# Export to ./out without a log file, then check what happened
 	my $status = App::Access2CSV->run('--output-dir', 'out', '--no-log', 'shop.accdb');
-	if($status == 1) {
+
+	if($status == 0) {
+		print "All tables were exported\n";
+	} elsif($status == 1) {
 		print "Some tables could not be exported\n";
+	} elsif($status == 2) {
+		print "The arguments were wrong\n";
+	} else {
+		print "Nothing was exported\n";
 	}
 
 =head3 API SPECIFICATION
@@ -199,8 +347,8 @@ the log file.
 
 	{
 		argv => {
-			type     => 'arrayref',
-			optional => 1,
+			type         => 'arrayref',
+			optional     => 1,
 			element_type => 'string',
 			description  => 'Command-line arguments, passed as a list',
 		},
@@ -208,49 +356,43 @@ the log file.
 
 =head4 Output
 
-	{ type => 'integer', min => 0, max => 3 }
+	{
+		type => 'integer',
+		min  => 0,
+		max  => 3,
+	}
 
 =head3 MESSAGES
 
 	+-------------------------------------+-------------------------------+------------------------------+
-	| Message                             | Meaning                       | Resolution                   |
+	| Message                             | Meaning                       | What to do                   |
 	+-------------------------------------+-------------------------------+------------------------------+
-	| Unknown option: X (exit 2)          | Getopt::Long did not          | See --help                   |
-	|                                     | recognise X                   |                              |
-	| Missing database filename (exit 2)  | No database was given, or     | Give exactly one database    |
-	|                                     | more than one was             |                              |
-	| access2csv: Cannot open log file F: | The log file cannot be        | Use --log elsewhere or       |
-	|  E (exit 3)                         | appended to                   | --no-log                     |
-	| access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See the exporter's MESSAGES  |
-	|                                     | exporter                      |                              |
+	| Unknown option: X (exit 2)          | X is not an option of this    | See --help                   |
+	|                                     | program                       |                              |
+	| Option X requires an argument       | An option such as --log was   | Give a value after it        |
+	|  (exit 2)                           | the last word                 |                              |
+	| Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
+	|                                     | or more than one was given    |                              |
+	| access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
+	|  E (exit 3)                         | written; E is the reason from | or --no-log                  |
+	|                                     | the operating system          |                              |
+	| access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See MESSAGES in              |
+	|                                     | exporter                      | App::Access2CSV::Exporter    |
 	+-------------------------------------+-------------------------------+------------------------------+
-
-=head3 FORMAL SPECIFICATION
-
-	┌─ Run ──────────────────────────────────────────────────────
-	│ argv? : seq STRING ; status! : 0 ‥ 3
-	│ opts : OPTION ⇸ VALUE ; rest : seq STRING
-	├────────────────────────────────────────────────────────────
-	│ (opts, rest) = getopt(argv?)
-	│ helpRequested(opts) ⇒ status! = 0
-	│ ¬ parsed(argv?) ∨ #rest ≠ 1 ⇒ status! = 2
-	│ parsed(argv?) ∧ #rest = 1 ⇒
-	│   (fatal(Exporter.Run(head rest)) ⇒ status! = 3) ∧
-	│   (¬ fatal(Exporter.Run(head rest)) ⇒
-	│        status! = Exporter.Run(head rest).status!)
-	└────────────────────────────────────────────────────────────
 
 =head3 PSEUDOCODE
 
-	opts := DEFAULTS
-	parse argv into opts; on error print usage and return 2
-	if --help or --man: print documentation and return 0
-	if not exactly one argument remains: print usage and return 2
+	options := default settings
+	read the command line into options
+	if the command line is wrong: print usage, return 2
+	if --help or --man: print the documentation, return 0
+	if there is not exactly one database name: print usage, return 2
 	try:
-		open the log unless --no-log
-		status := Exporter(opts).run(database)
-	on error:
-		print "access2csv: <message>" to STDERR; status := 3
+		open the log, unless logging is off
+		status := new Exporter(options).run(database)
+	if that failed:
+		print "access2csv: <reason>" to standard error
+		status := 3
 	return status
 
 =cut
@@ -388,20 +530,20 @@ __END__
 
 =over 4
 
-=item * The heavy lifting is done by external mdbtools programs, so their
-bugs and their CSV dialect (quoting, date formats, binary columns) are
-inherited.  A pure-Perl or DBI-based reader would remove the dependency,
-but no maintained CPAN module reads C<.accdb> files.
+=item * The real work is done by the external mdbtools programs.  Their
+bugs, and their CSV style (quoting, date format, binary columns), are
+passed on unchanged.  No maintained CPAN module can read C<.accdb> files,
+so there is no pure-Perl alternative today.
 
-=item * Messages from L<Getopt::Long>, L<Params::Validate::Strict> and
-L<autodie> are not translated.
+=item * Messages that come from L<Getopt::Long>, L<Params::Validate::Strict>
+and L<autodie> are not translated.
 
-=item * The log goes to F<access2csv.log> in the current directory by
-default, which may surprise users; use B<--log> or B<--no-log>.
+=item * The default log file is created in the current folder, which may
+surprise users.
 
-=item * Settings are taken from the command line only.  C<%DEFAULTS> is
-laid out so that L<Object::Configure> could supply them from a
-configuration file, but that is not wired up.
+=item * Settings come from the command line only.  C<%DEFAULTS> is laid out
+so that L<Object::Configure> could read them from a configuration file,
+but this is not connected yet.
 
 =back
 
@@ -410,12 +552,84 @@ configuration file, but that is not wired up.
 L<App::Access2CSV::Exporter>, L<App::Access2CSV::I18N>, L<Log::Abstraction>,
 L<https://github.com/mdbtools/mdbtools>
 
+=head1 FORMAL SPECIFICATION
+
+These schemas use the Z notation.  C<?> marks an input and C<!> an output.
+You do not need to read this section to use the program.
+
+=head2 run
+
+	┌─ Run ──────────────────────────────────────────────────────
+	│ argv? : seq STRING ; status! : 0 ‥ 3
+	│ opts : OPTION ⇸ VALUE ; rest : seq STRING
+	├────────────────────────────────────────────────────────────
+	│ (opts, rest) = getopt(DEFAULTS, argv?)
+	│ ¬ parsed(argv?) ⇒ status! = 2
+	│ parsed(argv?) ∧ help ∈ dom opts ⇒ status! = 0
+	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
+	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ⇒
+	│   (fatal(Exporter.Run(head rest)) ⇒ status! = 3) ∧
+	│   (¬ fatal(Exporter.Run(head rest)) ⇒
+	│        status! = Exporter.Run(head rest).status!)
+	└────────────────────────────────────────────────────────────
+
+=head1 STATE DIAGRAM
+
+One call of C<run>, from start to exit status.  Each box is a state.
+Each arrow shows what moves the program to the next state, and what
+happens on the way.
+
+	                  run(@argv)
+	                      |
+	                      v
+	              +---------------+
+	              |    PARSING    |  read options into the settings
+	              +---------------+
+	               |      |      |
+	 bad option or |      |      | --help / --man
+	 missing value |      |      | action: print documentation to STDOUT
+	 or not exactly|      |      v
+	 one database  |      |   +--------+
+	 action: print |      |   |  HELP  |---> return 0
+	 usage to      |      |   +--------+
+	 STDERR        v      |
+	      +-------------+ | options OK, one database
+	      | USAGE ERROR | |
+	      +-------------+ v
+	          |   +------------------+
+	 return 2 <---|  OPENING LOG     |  skipped with --no-log
+	              +------------------+
+	               |               |
+	               | log is        | log cannot be opened
+	               | writable      | (croak)
+	               v               |
+	      +------------------+     |
+	      | EXPORTING        |     |
+	      | (Exporter->run,  |     |
+	      |  see its STATE   |     |
+	      |  DIAGRAM)        |     |
+	      +------------------+     |
+	       |      |      |         |
+	all    |      | some | fatal   |
+	tables |      | table| error   |
+	OK, or |      |failed| (croak) |
+	dry run|      |      v         v
+	       |      |   +------------------+
+	       |      |   |      FATAL       |  action: print "access2csv: <reason>"
+	       |      |   +------------------+          to STDERR
+	       v      v            |
+	  return 0  return 1   return 3
+
 =head1 AUTHOR
 
 Nigel Horne, C<< <njh at nigelhorne.com> >>
 
 =head1 LICENSE AND COPYRIGHT
 
-This program is released under the same terms as Perl itself.
+Copyright 2026 Nigel Horne.
+
+Usage is subject to the GPL2 licence terms.
+If you use it,
+please let me know.
 
 =cut

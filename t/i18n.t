@@ -93,6 +93,10 @@ subtest 'errors' => sub {
 	throws_ok { $class->i18n('no_such_key') } qr/Unknown message key: no_such_key/, 'unknown key';
 	throws_ok { $class->i18n() } qr/Required parameter 'key'|key.*missing/i, 'missing key';
 	throws_ok { $class->i18n('summary', 'not a hash') } qr/args/, 'args must be a hashref';
+	throws_ok { $class->i18n('summary', { bogus => 1 }) } qr/Unknown parameter 'bogus'/, 'unknown args field';
+	throws_ok { $class->i18n('summary', { count => -1 }) } qr/count/, 'negative count';
+	throws_ok { $class->i18n('summary', { params => 'x' }) } qr/params/, 'params must be an arrayref';
+	is($class->i18n('summary', { params => [2, 0], count => undef }), 'Processed 2 tables, 0 failed', 'undef count means not given');
 };
 
 subtest 'protected helpers' => sub {

@@ -96,7 +96,7 @@ our %MESSAGES = (
 
 =head1 NAME
 
-App::Access2CSV::I18N - Message catalog and localised error reporting for App::Access2CSV
+App::Access2CSV::I18N - Message catalog and translated error messages for App::Access2CSV
 
 =head1 VERSION
 
@@ -104,23 +104,167 @@ Version 0.001
 
 =head1 SYNOPSIS
 
-	package My::Class;
+	use App::Access2CSV::I18N;
+
+	# 1. Get a message as text
+	my $text = App::Access2CSV::I18N->i18n('missing_database');
+	# "Missing database filename"
+
+	# 2. Fill in values (the message has %s and %d placeholders)
+	print App::Access2CSV::I18N->i18n('progress', { params => [1, 3, 'Customers'] }), "\n";
+	# "[1/3] Customers"
+
+	# 3. Let the count choose between singular and plural
+	print App::Access2CSV::I18N->i18n('summary', { params => [$n, 0], count => $n }), "\n";
+	# $n == 1: "Processed 1 table, 0 failed"
+	# $n == 4: "Processed 4 tables, 0 failed"
+
+	# 4. Add a translation.  Keys you do not translate stay in English.
+	$App::Access2CSV::I18N::MESSAGES{de}{missing_database} =
+		'Name der Datenbankdatei fehlt';
+	$ENV{LANG} = 'de_DE.UTF-8';
+
+	# 5. Use it as a base class, to get i18n() and the error helpers
+	package My::Tool;
 	use parent 'App::Access2CSV::I18N';
 
-	sub greet {
-		my $self = shift;
-		print $self->i18n('progress', { params => [1, 3, 'Customers'] }), "\n";
+	sub check {
+		my ($self, $file) = @_;
+		$self->_croak_i18n('database_not_file', { params => [$file] }) unless -f $file;
+		return $self;
 	}
 
 =head1 DESCRIPTION
 
-A small base class that turns message keys into user-facing text.
-Every message that App::Access2CSV prints, logs or throws goes through
-L</i18n>, so the tool can be translated by adding a language to
-C<%App::Access2CSV::I18N::MESSAGES>.
+Every message that App::Access2CSV prints, logs or throws is looked up
+here, by a short name called a I<key> (for example C<output_exists>).
+This keeps all the text in one place, so the program can be translated.
 
-Subclasses also inherit two protected helpers, C<_croak_i18n> and
-C<_carp_i18n>, which throw or warn with a localised message via L<Carp>.
+The text for each key is a I<template>.  A template is usually a
+C<sprintf> format: C<%s> is replaced by a text value and C<%d> by a whole
+number, in order.  A template can also have different forms:
+
+=over 4
+
+=item * B<Plural forms>, chosen by a count: C<one> for one item,
+C<other> for any other number.  Some languages use more forms
+(C<zero>, C<two>, C<few>, C<many>).
+
+=item * B<Context forms>, chosen by a word you give, such as C<male> or
+C<female>.  A context form can itself contain plural forms.
+
+=back
+
+The templates live in the hash C<%App::Access2CSV::I18N::MESSAGES>:
+
+	%MESSAGES = (
+		en => {
+			missing_database => 'Missing database filename',
+			summary => {
+				one   => 'Processed %d table, %d failed',
+				other => 'Processed %d tables, %d failed',
+			},
+			...
+		},
+	);
+
+Only English (C<en>) is included.
+
+=head2 Which language is used
+
+=over 4
+
+=item 1. The C<language> field of the object, if you call C<i18n> on an
+object that has one (for example
+C<< App::Access2CSV::Exporter->new(language => 'en') >>).
+
+=item 2. Otherwise the first of these environment variables that is set
+and is not C<C> or C<POSIX>: C<LANGUAGE>, C<LC_ALL>, C<LC_MESSAGES>,
+C<LANG>.  Only the language part is used: C<de_DE.UTF-8> means C<de>.
+Upper or lower case does not matter.  C<LANGUAGE> can hold a list such as
+C<fr:de>; only the first entry is used.
+
+=item 3. If there is no catalog for that language, English is used.
+
+=back
+
+Inside a language, a key that has no translation falls back to the
+English text, one key at a time.
+
+=head2 Helpers for subclasses
+
+Subclasses get two protected methods.  They can be called only from this
+class and its subclasses:
+
+=over 4
+
+=item * C<< $self->_croak_i18n($key, \%args) >> - throws an exception
+(with L<Carp/croak>) with the translated message.  It never returns.
+
+=item * C<< $self->_carp_i18n($key, \%args) >> - warns (with
+L<Carp/carp>) with the translated message.  It returns C<$self>.
+
+=back
+
+=head1 ENCODING
+
+=over 4
+
+=item * B<The English catalog> is plain ASCII.
+
+=item * B<Values in params> are copied into the message as they are.
+Byte strings (such as UTF-8 file names from the command line) stay byte
+strings, so non-ASCII text and emoji come out unchanged when printed.
+
+=item * B<Translations with non-ASCII text> (for example German C<ue>
+written as one letter, or Japanese) must be Perl character strings: write
+them in a source file with C<use utf8;>.  Do not mix them with UTF-8
+I<byte> strings in C<params>, or the bytes will be encoded a second time.
+When you print such messages, give the output handle an encoding, for
+example C<binmode(STDERR, ':encoding(UTF-8)')>, or Perl warns
+"Wide character in print".
+
+=back
+
+=head1 COMMON PITFALLS
+
+=over 4
+
+=item * B<Percent signs.>  A template with no C<params> is returned
+exactly as written, so C<100%> is safe.  But when you give C<params>, the
+template goes through C<sprintf>, so a literal percent sign must be
+written C<%%>.
+
+=item * B<Number of values.>  Give exactly as many C<params> as the
+template has placeholders.  Too few gives a Perl "Missing argument"
+warning; C<undef> in C<params> gives a "Use of uninitialized value"
+warning.
+
+=item * B<No count means plural.>  If you do not give C<count>, the
+C<other> form is used, even if the number in C<params> is 1.
+
+=item * B<Replacing a key replaces all of its forms.>
+C<%MESSAGES> is not merged in depth.  If you set
+C<< $MESSAGES{en}{summary} = 'Done' >>, the C<one> and C<other> forms of
+C<summary> are gone.  If a translation gives a plural hash, it must have
+an C<other> form.
+
+=item * B<Unknown context.>  A C<context> that the template does not have
+is ignored; the plural forms (or the plain text) are used instead.
+
+=item * B<Unknown keys are fatal.>  A key that is not in the English
+catalog is a programming error: C<i18n> calls C<confess>, which stops the
+program and prints a stack trace.
+
+=item * B<undef arguments.>  C<undef> for C<args>, or for a field inside
+the hashref form, is treated as "not given".  C<undef> as the key is
+reported as a missing key.
+
+=item * B<Load with use, not require.>  The protection of C<_croak_i18n>
+and C<_carp_i18n> is set up at compile time.  After a run-time
+C<require> it is missing, and Perl prints "Too late to run CHECK block".
+
+=back
 
 =head1 METHODS
 
@@ -128,11 +272,16 @@ C<_carp_i18n>, which throw or warn with a localised message via L<Carp>.
 
 =head3 Purpose
 
-Look up a message template by key in the catalog for the current language,
-choose the right context and plural form, then fill in its C<sprintf>
-placeholders.
+Turn a message key into text in the user's language.  Choose the right
+context and plural form, then fill in the values.
 
 =head3 Arguments
+
+You can call C<i18n> on the class or on an object.  There are two ways
+to give the arguments:
+
+	$obj->i18n($key, \%args);
+	$obj->i18n({ key => $key, args => \%args });
 
 =over 4
 
@@ -140,33 +289,29 @@ placeholders.
 
 The message key, for example C<'output_exists'>.
 
-=item C<args> (hashref, optional)
+=item C<args> (hash reference, optional)
 
 =over 4
 
-=item C<params> - arrayref of values passed to C<sprintf>, in order.
+=item C<params> - an array reference of the values for the placeholders,
+in order.
 
-=item C<count> - integer used to choose the plural form.
+=item C<count> - a whole number, 0 or more, that chooses the plural form.
 
-=item C<context> - string used to choose a context-specific form,
-for example C<'male'> or C<'female'>.
+=item C<context> - a word that chooses a context form, for example
+C<'female'>.
 
 =back
 
 =back
-
-May be called as a class method or an object method.
-When called on an object whose C<language> attribute is set, that language
-is used; otherwise the language is taken from the environment
-(C<LANGUAGE>, C<LC_ALL>, C<LC_MESSAGES>, C<LANG>, in that order).
 
 =head3 Returns
 
-The formatted message as a string, without a trailing newline.
+The message as a string, without a newline at the end.
 
 =head3 Side Effects
 
-None, apart from C<confess> on an unknown key.
+None.  It only reads C<%MESSAGES> and C<%ENV>.
 
 =head3 Usage
 
@@ -174,25 +319,28 @@ None, apart from C<confess> on an unknown key.
 
 =head3 EXAMPLE
 
-	# "Output file already exists: out/Orders.csv (use --overwrite ...)"
-	my $msg = App::Access2CSV::I18N->i18n(
-		'output_exists',
-		{ params => ['out/Orders.csv'] },
-	);
+	# "Output file already exists: out/Orders.csv (use --overwrite to replace it)"
+	my $msg = App::Access2CSV::I18N->i18n('output_exists', { params => ['out/Orders.csv'] });
 
-	# Plural forms: "Processed 1 table, 0 failed" / "Processed 2 tables, 0 failed"
-	print $obj->i18n('summary', { params => [$n, 0], count => $n }), "\n";
-
-	# Adding a translation at run time
-	$App::Access2CSV::I18N::MESSAGES{de}{missing_database} =
-		'Name der Datenbankdatei fehlt';
+	# A message with context and plural forms
+	$App::Access2CSV::I18N::MESSAGES{en}{greeting} = {
+		female => { one => 'She sent %d letter', other => 'She sent %d letters' },
+		other  => 'They sent %d letters',
+	};
+	print App::Access2CSV::I18N->i18n('greeting',
+		{ params => [2], count => 2, context => 'female' }), "\n";
+	# "She sent 2 letters"
 
 =head3 API SPECIFICATION
 
 =head4 Input
 
 	{
-		key  => { type => 'string', min => 1 },
+		key => {
+			type     => 'string',
+			min      => 1,
+			optional => 0,
+		},
 		args => {
 			type     => 'hashref',
 			optional => 1,
@@ -206,45 +354,40 @@ None, apart from C<confess> on an unknown key.
 
 =head4 Output
 
-	{ type => 'string' }
+	{
+		type => 'string',
+	}
 
 =head3 MESSAGES
 
 	+-----------------------------+-------------------------------+---------------------------------+
-	| Message                     | Meaning                       | Resolution                      |
+	| Message                     | Meaning                       | What to do                      |
 	+-----------------------------+-------------------------------+---------------------------------+
-	| Unknown message key: KEY    | KEY is not in the default     | Programming error: add KEY to   |
-	|  (fatal, via confess)       | (en) catalog                  | %MESSAGES{en}                   |
-	| Params::Validate::Strict    | key or args has the wrong     | Pass a key string and an        |
-	|  errors (fatal)             | type                          | optional hashref                |
+	| Unknown message key: KEY    | KEY is not in the English     | Programming error: add KEY to   |
+	|  (fatal, with stack trace)  | catalog                       | $MESSAGES{en}                   |
+	| Required parameter 'key' is | No key was given              | Give a key                      |
+	|  missing (fatal)            |                               |                                 |
+	| Unknown parameter 'X'       | args has a field that is not  | Use only params, count and      |
+	|  (fatal)                    | params, count or context      | context                         |
+	| Parameter 'count' (X) must  | count is negative or not a    | Give a whole number, 0 or more  |
+	|  be ... (fatal)             | whole number                  |                                 |
+	| Parameter 'params' must be  | params is not an array        | Give an array reference         |
+	|  an arrayref (fatal)        | reference                     |                                 |
 	+-----------------------------+-------------------------------+---------------------------------+
-
-=head3 FORMAL SPECIFICATION
-
-	┌─ I18n ─────────────────────────────────────────────────────
-	│ Catalog : LANG ⇸ (KEY ⇸ TEMPLATE)
-	│ key? : KEY ; params? : seq VALUE ; count? : ℕ ; context? : CTX
-	│ lang : LANG ; msg! : seq CHAR
-	├────────────────────────────────────────────────────────────
-	│ key? ∈ dom Catalog(en)
-	│ lang = (if key? ∈ dom Catalog(userLang) then userLang else en)
-	│ t₀ = Catalog(lang)(key?)
-	│ t₁ = (if context? ∈ dom t₀ then t₀(context?) else t₀)
-	│ t₂ = (if t₁ ∈ STRING then t₁
-	│        else if plural(lang, count?) ∈ dom t₁
-	│             then t₁(plural(lang, count?)) else t₁(other))
-	│ msg! = sprintf(t₂, params?)
-	└────────────────────────────────────────────────────────────
 
 =head3 PSEUDOCODE
 
-	validate key and args
-	lang  := object language, or language from the environment
-	entry := catalog[lang][key], else catalog[en][key], else confess
-	if entry is a hash and has args.context: entry := entry[context]
-	if entry is still a hash: entry := entry[plural_category(lang, count)]
-	                          (falling back to entry['other'])
-	return sprintf(entry, params)
+	check key and args
+	lang := the object's language, or the language from the environment,
+	        or English if there is no catalog for it
+	entry := catalog[lang][key], or else catalog[en][key], or else confess
+	if entry has forms and one matches args.context:
+		entry := that form
+	if entry still has forms:
+		entry := the form for plural_category(lang, count),
+		         or else the "other" form
+	if there are params: return sprintf(entry, params)
+	else: return entry unchanged
 
 =cut
 
@@ -259,7 +402,15 @@ sub i18n {
 	my $params = validate_strict(
 		schema => {
 			key  => { type => 'string', min => 1 },
-			args => { type => 'hashref', optional => 1 },
+			args => {
+				type     => 'hashref',
+				optional => 1,
+				schema   => {
+					params  => { type => 'arrayref', optional => 1 },
+					count   => { type => 'integer', optional => 1, min => 0 },
+					context => { type => 'string', optional => 1 },
+				},
+			},
 		},
 		input => $in,
 	);
@@ -376,29 +527,119 @@ __END__
 
 =over 4
 
-=item * Only an English catalog ships with the distribution.
-Other languages fall back to English key by key.
+=item * Only an English catalog is included.  Other languages fall back
+to English, one key at a time.
 
-=item * Plural rules are provided for a handful of languages only;
-unknown languages use the English rule.
+=item * Plural rules exist only for a few languages (C<en>, C<de>, C<fr>,
+C<ja>, C<ko>, C<zh>).  Other languages use the English rule.
 
-=item * Error messages raised by third-party modules (for example
-L<Params::Validate::Strict>, L<autodie>) are not translated.
+=item * Messages from other modules (for example
+L<Params::Validate::Strict> and L<autodie>) are not translated.
 
-=item * Access control from L<Sub::Private> and L<Sub::Protected> is
-applied at C<CHECK> time.  If this module is first loaded at run time
-(C<require> after compilation has finished), Perl warns
-"Too late to run CHECK block" and the private and protected helpers
-are B<not> protected.
+=item * L<Sub::Private> and L<Sub::Protected> set up their protection at
+C<CHECK> time.  If this module is first loaded at run time (with
+C<require> after the program has been compiled), Perl warns
+"Too late to run CHECK block" and the private and protected helpers are
+B<not> protected.
 
 =back
 
+=head1 SEE ALSO
+
+L<App::Access2CSV>, L<App::Access2CSV::Exporter>
+
 =head1 AUTHOR
 
-Nigel Horne, C<< <nigel.horne at gmail.com> >>
+Nigel Horne, C<< <njh at nigelhorne.com> >>
 
 =head1 LICENSE AND COPYRIGHT
 
 This program is released under the same terms as Perl itself.
+
+=head1 FORMAL SPECIFICATION
+
+These schemas use the Z notation.  C<?> marks an input and C<!> an
+output.  You do not need to read this section to use the module.
+
+	[KEY, LANG, CTX, VALUE]
+	CATEGORY ::= zero | one | two | few | many | other
+	TEMPLATE ::= text⟨⟨seq CHAR⟩⟩
+	           | forms⟨⟨(CTX ∪ CATEGORY) ⇸ TEMPLATE⟩⟩
+
+	┌─ Catalog ──────────────────────────────────────────────────
+	│ MESSAGES : LANG ⇸ (KEY ⇸ TEMPLATE)
+	│ plural : LANG × ℕ → CATEGORY
+	├────────────────────────────────────────────────────────────
+	│ en ∈ dom MESSAGES
+	└────────────────────────────────────────────────────────────
+
+=head2 i18n
+
+	┌─ I18n ─────────────────────────────────────────────────────
+	│ ΞCatalog
+	│ key? : KEY ; params? : seq VALUE ; count? : ℕ ; context? : CTX
+	│ userLang : LANG ; lang : LANG ; msg! : seq CHAR
+	├────────────────────────────────────────────────────────────
+	│ key? ∈ dom MESSAGES(en)
+	│ lang = (if userLang ∈ dom MESSAGES then userLang else en)
+	│ t₀ = (if key? ∈ dom MESSAGES(lang)
+	│        then MESSAGES(lang)(key?) else MESSAGES(en)(key?))
+	│ t₁ = (if t₀ = forms(f) ∧ context? ∈ dom f then f(context?) else t₀)
+	│ t₂ = (if t₁ = forms(g)
+	│        then (if plural(lang, count?) ∈ dom g
+	│              then g(plural(lang, count?)) else g(other))
+	│        else t₁)
+	│ msg! = (if params? = ⟨⟩ then t₂ else sprintf(t₂, params?))
+	└────────────────────────────────────────────────────────────
+
+	┌─ I18nUnknownKey ───────────────────────────────────────────
+	│ ΞCatalog
+	│ key? : KEY ; error! : seq CHAR
+	├────────────────────────────────────────────────────────────
+	│ key? ∉ dom MESSAGES(en)
+	│ error! = "Unknown message key: " ⁀ key?
+	└────────────────────────────────────────────────────────────
+
+=head1 STATE DIAGRAM
+
+This module keeps no state between calls: C<i18n> only reads
+C<%MESSAGES> and C<%ENV>.  The diagram shows the steps of one call.
+Each box is a step.  Each arrow shows what decides the next step.
+
+	      i18n($key, \%args)
+	              |
+	              v
+	     +------------------+  key missing, or args
+	     |    VALIDATING    |  has a bad field
+	     +------------------+-----------------------------+
+	              | OK                                    |
+	              v                                       |
+	     +------------------+                             |
+	     | CHOOSING LANGUAGE|  object language, else      |
+	     |                  |  LANGUAGE/LC_ALL/           |
+	     |                  |  LC_MESSAGES/LANG, else en  |
+	     +------------------+                             |
+	              |                                       |
+	              v                                       v
+	     +------------------+  key not in       +------------------+
+	     |  LOOKING UP KEY  |  English either   |      FATAL       |
+	     | (language, then  |------------------>| croak / confess  |
+	     |  English)        |                   +------------------+
+	     +------------------+
+	              | template found
+	              v
+	     +------------------+  plain text
+	     | NARROWING FORMS  |-----------------------+
+	     | 1. context form  |                       |
+	     | 2. plural form   |                       |
+	     |    (else other)  |                       |
+	     +------------------+                       |
+	              | one plain template left         |
+	              v                                 v
+	     +------------------+  no params    +------------------+
+	     |   FORMATTING     |-------------->|   return text    |
+	     | sprintf(params)  |-------------->|   unchanged /    |
+	     +------------------+   params      |   formatted      |
+	                                        +------------------+
 
 =cut

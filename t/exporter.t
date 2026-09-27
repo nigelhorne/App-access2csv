@@ -65,6 +65,8 @@ subtest 'constructor validation' => sub {
 	throws_ok { App::Access2CSV::Exporter->new(encoding => 'latin1') } qr/encoding/, 'bad encoding';
 	throws_ok { App::Access2CSV::Exporter->new(bogus => 1) } qr/Unknown parameter 'bogus'/, 'unknown setting';
 	throws_ok { App::Access2CSV::Exporter->new(logger => 'file.log') } qr/logger/, 'logger must be an object';
+	throws_ok { App::Access2CSV::Exporter->new(logger => bless({}, 'Local::NoMethods')) } qr/logger.*debug/, 'logger must have debug/info/warn';
+	throws_ok { App::Access2CSV::Exporter->new(tables => [['nested']]) } qr/tables can only contain strings/, 'tables must be strings';
 
 	my @tables = ('A');
 	my $e = App::Access2CSV::Exporter->new(tables => \@tables);
@@ -169,6 +171,19 @@ subtest 'table filter' => sub {
 
 	(undef, undef, undef, $stderr) = export([qw(A)], tables => [qw(Zed)]);
 	like($stderr, qr/Table not found in database: Zed/, 'singular form');
+};
+
+subtest 'an empty table list exports nothing (documented pitfall)' => sub {
+	my ($status, $out, undef, undef, $logger) = export([qw(A B)], tables => []);
+	is($status, 0, 'success');
+	ok(!-e "$out/A.csv" && !-e "$out/B.csv", 'no files');
+	like($logger->{lines}[-1], qr/Processed 0 tables, 0 failed/, 'summary');
+};
+
+subtest 'undef settings mean "use the default"' => sub {
+	my $e = App::Access2CSV::Exporter->new(progress => undef, encoding => undef);
+	is($e->{progress}, 1, 'progress default');
+	is($e->{encoding}, 'utf8', 'encoding default');
 };
 
 subtest 'dry run writes nothing' => sub {
