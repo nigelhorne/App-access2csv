@@ -3,6 +3,6 @@
 use strict;
 use warnings;
 
-use App::access2CSV;
+use App::Access2CSV;
 
-exit App::access2CSV;
+exit App::Access2CSV->run(@ARGV);

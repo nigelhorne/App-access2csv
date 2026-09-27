@@ -1,4 +1,4 @@
-package App::access2CSV::Logger;
+package App::Access2CSV::Logger;
 
 use strict;
 use warnings;

@@ -4,8 +4,8 @@ use warnings;
 use ExtUtils::MakeMaker;
 
 WriteMakefile(
-    NAME         => 'App::access2csv',
-    VERSION_FROM => 'lib/App/access2CSV.pm',
+    NAME         => 'App::Access2csv',
+    VERSION_FROM => 'lib/App/Access2CSV.pm',
 
     EXE_FILES => [
         'bin/access2csv',
