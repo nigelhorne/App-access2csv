@@ -8,7 +8,7 @@ use Getopt::Long qw(GetOptionsFromArray);
 use Pod::Usage qw(pod2usage);
  
 use App::access2CSV::Exporter;
-use App::access2CSv::Logger;
+use App::access2CSV::Logger;
  
 our $VERSION = '0.001';
  
