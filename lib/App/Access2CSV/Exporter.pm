@@ -688,7 +688,13 @@ sub _export_all :Private {
 	my $total  = scalar @{$tables};
 	my $failed = 0;
 
-	while(my ($index, $table) = each @{$tables}) {
+	# eval below would otherwise overwrite the caller's $@
+	local $@;
+
+	# An index loop, not each(), which shares the array's iterator with the
+	# caller and would silently skip tables if it was already part-way
+	foreach my $index (0 .. $#{$tables}) {
+		my $table = $tables->[$index];
 		# Progress goes to STDERR so that STDOUT can be redirected cleanly
 		if($self->{progress}) {
 			print STDERR $self->i18n('progress', { params => [$index + 1, $total, $table] }), "\n";
@@ -759,6 +765,11 @@ sub _export_table :Protected {
 sub _export_transcoded :Private {
 	my ($self, $database, $table, $out) = @_;
 
+	# Reading the spool changes $. and the evals change $@; keep the
+	# caller's values
+	local $.;
+	local $@;
+
 	# Spool to disk rather than memory, so huge tables do not exhaust RAM
 	my $spool = File::Temp->new(DIR => $self->{output_dir}, TEMPLATE => $TEMP_TEMPLATE, UNLINK => 1);
 	binmode $spool, ':raw';
@@ -786,6 +797,9 @@ sub _export_transcoded :Private {
 #                 auto-deleted.
 sub _install_file :Private {
 	my ($self, $tmp, $outfile) = @_;
+
+	# The eval must not overwrite the caller's $@
+	local $@;
 
 	# File::Temp creates files as 0600; give the CSV the permissions a
 	# normal open() would have, i.e. 0666 less the umask
@@ -828,6 +842,9 @@ sub _count_rows :Private {
 # Side Effects:   Runs a child process; writes to $stdout; sets $?.
 sub _run_program :Private {
 	my ($self, $name, $args, $stdout) = @_;
+
+	# run3 sets $?; keep the caller's value
+	local $?;
 
 	# A list (not a string) is passed, so no shell ever sees the file or
 	# table name and quoting cannot be abused

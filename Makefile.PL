@@ -39,7 +39,10 @@ WriteMakefile(
 		'Capture::Tiny' => 0,
 		'Errno'        => 0,
 		'POSIX'        => 0,
+		'Test::Memory::Cycle' => 0,
+		'Test::Mockingbird' => 0.13,	# mock_scoped multi-method form
 		'Test::Most'   => 0,
+		'Test::Returns' => 0,
 	},
 
 	LICENSE => 'gpl_2',

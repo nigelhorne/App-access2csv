@@ -10,6 +10,7 @@ t/00-load.t
 t/app.t
 t/exporter.t
 t/filename-collision.t
+t/function.t
 t/i18n.t
 t/lib/FakeMDB.pm
 t/locales.t

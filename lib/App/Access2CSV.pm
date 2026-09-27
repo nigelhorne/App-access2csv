@@ -489,8 +489,10 @@ sub _make_logger :Private {
 	return unless defined($opt->{log}) && length($opt->{log});
 
 	# Log::Abstraction silently ignores an unwritable file, which would lose
-	# the log without telling anyone, so prove that we can append first
+	# the log without telling anyone, so prove that we can append first.
+	# The eval must not overwrite the caller's $@.
 	my $file = $opt->{log};
+	local $@;
 	eval {
 		open my $fh, '>>', $file;
 		close $fh;
