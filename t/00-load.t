@@ -1,7 +1,7 @@
 use Test::Most;
 
-use_ok('App::access2csv');
-use_ok('App::access2csv::Exporter');
-use_ok('App::access2csv::Logger');
+use_ok('App::access2CSV');
+use_ok('App::access2CSV::Exporter');
+use_ok('App::access2CSV::Logger');
 
 done_testing;

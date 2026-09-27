@@ -1,9 +1,9 @@
 use Test::Most;
 
-use App::access2csv::Exporter;
+use App::access2CSV::Exporter;
 
 my $e =
-    App::access2csv::Exporter->new();
+    App::access2CSV::Exporter->new();
 
 is(
     $e->_csv_filename(
