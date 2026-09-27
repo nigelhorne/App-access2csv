@@ -2,361 +2,876 @@ package App::Access2CSV::Exporter;
 
 use strict;
 use warnings;
+use autodie qw(:all);
 
-use autodie;
+# Sub::Private must be in enforce mode before it is loaded, so that
+# private methods still work through $self->method dispatch
+BEGIN { $Sub::Private::config{mode} = 'enforce' }
+
+# Inherit i18n() and the protected _croak_i18n/_carp_i18n helpers
+use parent 'App::Access2CSV::I18N';
+
+use Encode qw(FB_CROAK);
 use File::Path qw(make_path);
 use File::Spec;
+use File::Temp;
 use File::Which qw(which);
 use IPC::Run3 qw(run3);
+use Params::Get qw(get_params);
+use Params::Validate::Strict qw(validate_strict);
+use Readonly;
+use Return::Set qw(set_return);
+use Sub::Private;
+use Sub::Protected;
+
+our $VERSION = '0.001';
+
+# Stop Carp from reporting errors against the access-control wrappers
+our @CARP_NOT = qw(Sub::Private Sub::Protected App::Access2CSV::I18N);
+
+# Exit statuses returned by run()
+Readonly::Scalar my $EXIT_OK      => 0;
+Readonly::Scalar my $EXIT_FAILURE => 1;
+
+# The mdbtools programs; mdb-count is only needed for --show-counts
+Readonly::Scalar my $MDB_TABLES   => 'mdb-tables';
+Readonly::Scalar my $MDB_EXPORT   => 'mdb-export';
+Readonly::Scalar my $MDB_COUNT    => 'mdb-count';
+Readonly::Array  my @REQUIRED_PROGRAMS => ($MDB_TABLES, $MDB_EXPORT);
+
+# Output encodings accepted by --encoding
+Readonly::Scalar my $ENC_UTF8     => 'utf8';
+Readonly::Scalar my $ENC_UTF8_BOM => 'utf8-bom';
+Readonly::Scalar my $ENC_CP1252   => 'cp1252';
+Readonly::Array  my @ENCODINGS    => ($ENC_UTF8, $ENC_UTF8_BOM, $ENC_CP1252);
+
+# Byte order mark written at the start of utf8-bom files (for Excel)
+Readonly::Scalar my $UTF8_BOM     => "\xEF\xBB\xBF";
+
+# Tables Access creates for itself: MSys*, USys* and ~temporary objects
+Readonly::Scalar my $SYSTEM_TABLE_RE => qr/\A(?:MSys|USys|~)/i;
+
+# Characters that are illegal in a file name on at least one common OS
+Readonly::Scalar my $UNSAFE_CHARS_RE => qr/[<>:"\/\\|?*\x00-\x1F\x7F]/;
+
+# Device names Windows reserves whatever the extension (CON.csv is illegal)
+Readonly::Scalar my $RESERVED_NAME_RE => qr/\A(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])\z/i;
+
+# Name used when sanitising leaves nothing, and the extension we write
+Readonly::Scalar my $UNNAMED      => 'unnamed';
+Readonly::Scalar my $CSV_SUFFIX   => '.csv';
+
+# Temporary files are hidden and live next to the target for atomic rename
+Readonly::Scalar my $TEMP_TEMPLATE => '.access2csv-XXXXXX';
+
+# Dry-run table layout
+Readonly::Scalar my $TABLE_COLUMN_WIDTH => 40;
+Readonly::Scalar my $ROWS_COLUMN_WIDTH  => 10;
+Readonly::Scalar my $RULE_WIDTH         => 70;
+
+# Mode bits for new files before the umask is applied
+Readonly::Scalar my $FILE_MODE    => oct('666');
+
+# Default settings; the flat scalar layout is compatible with Object::Configure
+Readonly::Hash my %DEFAULTS => (
+	output_dir  => File::Spec->curdir(),
+	overwrite   => 0,
+	verbose     => 0,
+	dry_run     => 0,
+	show_counts => 0,
+	progress    => 1,
+	encoding    => $ENC_UTF8,
+);
+
+# Constructor argument schema, shared by new() and the POD
+Readonly::Hash my %NEW_SCHEMA => (
+	output_dir  => { type => 'string', min => 1, optional => 1 },
+	tables      => { type => 'arrayref', optional => 1 },
+	overwrite   => { type => 'boolean', optional => 1 },
+	verbose     => { type => 'boolean', optional => 1 },
+	dry_run     => { type => 'boolean', optional => 1 },
+	show_counts => { type => 'boolean', optional => 1 },
+	progress    => { type => 'boolean', optional => 1 },
+	encoding    => { type => 'string', memberof => [@ENCODINGS], optional => 1 },
+	logger      => { type => 'object', optional => 1 },
+	language    => { type => 'string', optional => 1 },
+);
+
+=encoding utf8
+
+=head1 NAME
+
+App::Access2CSV::Exporter - Export the tables of a Microsoft Access database to CSV files
+
+=head1 VERSION
+
+Version 0.001
+
+=head1 SYNOPSIS
+
+	use App::Access2CSV::Exporter;
+
+	my $exporter = App::Access2CSV::Exporter->new(
+		output_dir => 'exports',
+		encoding   => 'utf8-bom',
+	);
+	my $status = $exporter->run('database.accdb');
+
+=head1 DESCRIPTION
+
+Drives the external mdbtools programs (C<mdb-tables>, C<mdb-export> and,
+optionally, C<mdb-count>) to write one CSV file per user table.
+
+Each file is first written to a hidden temporary file in the output
+directory and then renamed into place, so a failed export never leaves a
+truncated CSV behind and an existing file is only replaced when the new
+one is complete.
+
+=head1 METHODS
+
+=head2 new
+
+=head3 Purpose
+
+Create an exporter with the given settings.
+
+=head3 Arguments
+
+Named arguments, as a list or a hashref.  All are optional.
+
+=over 4
+
+=item C<output_dir> - directory to write to (default: the current directory)
+
+=item C<tables> - arrayref of table names to export (default: all user tables)
+
+=item C<overwrite> - replace existing CSV files (default: false)
+
+=item C<verbose> - log extra detail (default: false)
+
+=item C<dry_run> - list what would be written and write nothing (default: false)
+
+=item C<show_counts> - report row counts using C<mdb-count> (default: false)
+
+=item C<progress> - print C<[n/total] table> progress to STDERR (default: true)
+
+=item C<encoding> - C<utf8>, C<utf8-bom> or C<cp1252> (default: C<utf8>)
+
+=item C<logger> - an object with C<info>, C<warn> and C<debug> methods,
+for example a L<Log::Abstraction> (default: no logging)
+
+=item C<language> - message language code, overriding the locale
+
+=back
+
+=head3 Returns
+
+A blessed C<App::Access2CSV::Exporter>.
+
+=head3 Side Effects
+
+None.  Nothing is checked on disk until L</run>.
+
+=head3 Usage
+
+	my $exporter = App::Access2CSV::Exporter->new({ dry_run => 1 });
+
+=head3 EXAMPLE
+
+	# Export two tables as Windows-1252, replacing earlier exports
+	my $exporter = App::Access2CSV::Exporter->new(
+		output_dir => 'out',
+		tables     => ['Customers', 'Orders'],
+		encoding   => 'cp1252',
+		overwrite  => 1,
+		logger     => Log::Abstraction->new(logger => 'export.log'),
+	);
+
+=head3 API SPECIFICATION
+
+=head4 Input
+
+	{
+		output_dir  => { type => 'string', min => 1, optional => 1 },
+		tables      => { type => 'arrayref', optional => 1 },
+		overwrite   => { type => 'boolean', optional => 1 },
+		verbose     => { type => 'boolean', optional => 1 },
+		dry_run     => { type => 'boolean', optional => 1 },
+		show_counts => { type => 'boolean', optional => 1 },
+		progress    => { type => 'boolean', optional => 1 },
+		encoding    => { type => 'string', memberof => ['utf8', 'utf8-bom', 'cp1252'], optional => 1 },
+		logger      => { type => 'object', optional => 1 },
+		language    => { type => 'string', optional => 1 },
+	}
+
+=head4 Output
+
+	{ type => 'object', isa => 'App::Access2CSV::Exporter' }
+
+=head3 MESSAGES
+
+	+--------------------------------------+------------------------------+-----------------------------+
+	| Message                              | Meaning                      | Resolution                  |
+	+--------------------------------------+------------------------------+-----------------------------+
+	| Unknown parameter 'X' (fatal)        | X is not a known setting     | Remove or correct X         |
+	| Parameter 'encoding' (X) must be one | Unsupported encoding         | Use utf8, utf8-bom, cp1252  |
+	|  of utf8, utf8-bom, cp1252 (fatal)   |                              |                             |
+	| Parameter 'logger' must be an object | logger is not blessed        | Pass a logger object        |
+	+--------------------------------------+------------------------------+-----------------------------+
+
+These come from L<Params::Validate::Strict> and are not translated.
+
+=head3 FORMAL SPECIFICATION
+
+	┌─ NewExporter ──────────────────────────────────────────────
+	│ args? : SETTING ⇸ VALUE
+	│ self! : Exporter
+	├────────────────────────────────────────────────────────────
+	│ dom args? ⊆ dom NEW_SCHEMA
+	│ ∀ k : dom args? • valid(NEW_SCHEMA(k), args?(k))
+	│ self!.settings = DEFAULTS ⊕ args?
+	│ self!.used_names = ∅
+	│ self!.programs = ∅
+	└────────────────────────────────────────────────────────────
+
+=cut
 
 sub new {
-    my ($class, %arg) = @_;
+	my $class = shift;
 
-    $arg{used_names} ||= {};
+	# Drop undefined values so that "not given" means "use the default"
+	my $args = get_params(undef, \@_) || {};
+	my %given = map { $_ => $args->{$_} } grep { defined $args->{$_} } keys %{$args};
 
-    return bless \%arg, $class;
+	my $params = validate_strict(schema => { %NEW_SCHEMA }, input => \%given);
+
+	# Copy the table list so later changes by the caller cannot affect us
+	$params->{tables} = [ @{ $params->{tables} } ] if $params->{tables};
+
+	my $self = bless { %DEFAULTS, %{$params}, used_names => {}, programs => {} }, $class;
+	return set_return($self, { type => 'object' });
 }
+
+=head2 run
+
+=head3 Purpose
+
+Export every selected user table of a database to CSV, or, in dry-run
+mode, print what would be exported.
+
+=head3 Arguments
+
+=over 4
+
+=item C<database> (string, required) - path to the C<.mdb> or C<.accdb> file
+
+=back
+
+=head3 Returns
+
+An exit status: C<0> if every table was exported (or in dry-run mode),
+C<1> if at least one table failed.
+
+=head3 Side Effects
+
+Creates the output directory, writes CSV files, prints progress to STDERR
+and the dry-run listing to STDOUT, writes to the logger, and warns (via
+C<carp>) about each failed table and about unknown C<tables>.
+
+Croaks, without writing anything, if the database cannot be read or a
+required mdbtools program is missing.
+
+=head3 Usage
+
+	exit $exporter->run('database.accdb');
+
+=head3 EXAMPLE
+
+	my $exporter = App::Access2CSV::Exporter->new(output_dir => 'out');
+	my $status = eval { $exporter->run('shop.accdb') };
+	if(!defined $status) {
+		print STDERR "Export aborted: $@";
+	} elsif($status) {
+		print STDERR "Some tables failed; see the log\n";
+	}
+
+=head3 API SPECIFICATION
+
+=head4 Input
+
+	{
+		database => { type => 'string', min => 1 },
+	}
+
+=head4 Output
+
+	{ type => 'integer', min => 0, max => 1 }
+
+=head3 MESSAGES
+
+	+-----------------------------------------+------------------------------+-------------------------------+
+	| Message                                 | Meaning                      | Resolution                    |
+	+-----------------------------------------+------------------------------+-------------------------------+
+	| Cannot read database F: E (fatal)       | F does not exist or cannot   | Check the path                |
+	|                                         | be stat()ed; E is the OS     |                               |
+	|                                         | error                        |                               |
+	| Database F is not a regular file (fatal)| F is a directory, etc.       | Give the database file        |
+	| Database F is not readable (fatal)      | No read permission           | Fix the permissions           |
+	| Required program not found in PATH: P   | mdbtools not installed       | Install mdbtools / fix PATH   |
+	|  (fatal)                                |                              |                               |
+	| P failed with exit status N: E (fatal   | mdb-tables failed; per table | Check the database is a valid |
+	|  for mdb-tables, per-table otherwise)   | for mdb-export/mdb-count     | Access file                   |
+	| P was killed by signal N                | As above, but by a signal    | Check system resources        |
+	| Cannot create output directory D: E     | mkdir failed                 | Check permissions / path      |
+	|  (fatal)                                |                              |                               |
+	| Tables not found in database: T (warn)  | --table named unknown tables | Check spelling and case       |
+	| mdb-count not found in PATH; row counts | --show-counts without        | Install mdb-count             |
+	|  are unavailable (warn)                 | mdb-count                    |                               |
+	| FAILED: T: E (warn, logged)             | Table T could not be exported| See E                         |
+	| Output file already exists: F (per      | F exists and --overwrite was | Use --overwrite or another    |
+	|  table)                                 | not given                    | --output-dir                  |
+	| Table T, line N: cannot be represented  | A character has no cp1252    | Use --encoding utf8           |
+	|  in cp1252 (per table)                  | equivalent                   |                               |
+	| Table T, line N: output of mdb-export   | mdbtools emitted bytes that  | Check MDB_ICONV / the         |
+	|  is not valid UTF-8 (per table)         | are not UTF-8                | database's code page          |
+	| Cannot write F: E (per table)           | Rename or chmod failed       | Check permissions / space     |
+	+-----------------------------------------+------------------------------+-------------------------------+
+
+=head3 FORMAL SPECIFICATION
+
+	┌─ Run ──────────────────────────────────────────────────────
+	│ ΔFileSystem ; ΞExporter
+	│ database? : PATH ; status! : {0, 1}
+	│ all, selected : iseq TABLE ; failed : ℙ TABLE
+	├────────────────────────────────────────────────────────────
+	│ database? ∈ readableFiles
+	│ {mdb-tables, mdb-export} ⊆ dom PATH
+	│ all = sort({ t : tablesOf(database?) | ¬ system(t) })
+	│ selected = (if tables = ∅ then all else all ↾ ran tables)
+	│ dry_run ⇒ files' = files ∧ status! = 0
+	│ ¬dry_run ⇒
+	│   failed = { t : ran selected | ¬ exported(t) } ∧
+	│   (∀ t : ran selected \ failed •
+	│      files'(output_dir / csvName(t)) = encode(encoding, csv(t))) ∧
+	│   status! = (if failed = ∅ then 0 else 1)
+	└────────────────────────────────────────────────────────────
+
+=head3 PSEUDOCODE
+
+	validate database
+	croak unless database is a readable regular file
+	locate mdb-tables and mdb-export (croak if missing); mdb-count if wanted
+	forget file names allocated by any earlier run
+	tables := sorted user tables, filtered by --table (warn about unknowns)
+	if dry run:
+		print table -> file listing; return 0
+	create output directory (croak on failure)
+	for each table (numbered n of total):
+		print progress to STDERR if wanted
+		try export table; on failure warn, log, count failure
+	log summary
+	return failures ? 1 : 0
+
+=cut
 
 sub run {
-    my ($self, $database) = @_;
+	my $self = shift;
 
-    die "Database not found: $database\n"
-        unless -f $database;
+	my $params = validate_strict(
+		schema => { database => { type => 'string', min => 1 } },
+		input  => get_params('database', \@_),
+	);
+	my $database = $params->{database};
 
-    $self->_verify_dependencies();
+	# Fail fast, before any output, on problems that affect every table
+	$self->_check_database($database)
+		->_verify_dependencies()
+		->_reset_names();
 
-    make_path($self->{output_dir})
-        unless -d $self->{output_dir};
+	my $tables = $self->_select_tables($self->_get_tables($database));
 
-    my @tables = $self->_get_tables($database);
+	# A dry run must not touch the file system, so it returns before mkdir
+	my $status = $EXIT_OK;
+	if($self->{dry_run}) {
+		$self->_dry_run($database, $tables);
+	} else {
+		$self->_make_output_dir();
+		my $failed = $self->_export_all($database, $tables);
+		$status = $failed ? $EXIT_FAILURE : $EXIT_OK;
+	}
 
-    if ($self->{tables}) {
-
-        my %wanted =
-            map { $_ => 1 }
-            @{ $self->{tables} };
-
-        @tables =
-            grep { $wanted{$_} } @tables;
-    }
-
-    if ($self->{dry_run}) {
-
-        $self->_dry_run(@tables);
-
-        return 0;
-    }
-
-    my $total   = scalar @tables;
-    my $current = 0;
-    my $failed  = 0;
-
-    foreach my $table (@tables) {
-
-        ++$current;
-
-        if ($self->{progress}) {
-
-            printf(
-                "[%d/%d] %s\n",
-                $current,
-                $total,
-                $table,
-            );
-        }
-
-        eval {
-
-            $self->_export_table(
-                $database,
-                $table,
-            );
-
-            1;
-        }
-        or do {
-
-            my $error =
-                $@ || 'Unknown error';
-
-            ++$failed;
-
-            warn $error;
-
-            if ($self->{logger}) {
-
-                $self->{logger}->log(
-                    "FAILED: $table : $error"
-                );
-            }
-        };
-    }
-
-    if ($self->{logger}) {
-
-        $self->{logger}->log(
-            sprintf(
-                'Processed=%d Failed=%d',
-                $total,
-                $failed,
-            )
-        );
-    }
-
-    return $failed ? 1 : 0;
+	return set_return($status, { type => 'integer', min => $EXIT_OK, max => $EXIT_FAILURE });
 }
 
-sub _verify_dependencies {
+# _check_database
+# Purpose:        Make sure the database is a readable regular file.
+# Entry Criteria: $database is a defined, non-empty path.
+# Exit Status:    Returns $self for chaining; croaks otherwise.
+# Side Effects:   stat()s the file; sets $!.
+sub _check_database :Private {
+	my ($self, $database) = @_;
 
-    my ($self) = @_;
+	# The stat result is reused via "_" so the file is only examined once;
+	# $! is captured straight away because later calls may overwrite it
+	if(!-e $database) {
+		$self->_croak_i18n('database_not_found', { params => [$database, "$!"] });
+	}
+	$self->_croak_i18n('database_not_file', { params => [$database] }) unless -f _;
+	$self->_croak_i18n('database_unreadable', { params => [$database] }) unless -r _;
 
-    my %programs;
-
-    foreach my $program (
-        qw(
-            mdb-tables
-            mdb-export
-        )
-    ) {
-
-        my $path = which($program);
-
-        die "Required program not found in PATH: $program\n"
-            unless $path;
-
-        $programs{$program} = $path;
-
-        if (
-            $self->{verbose}
-            &&
-            $self->{logger}
-        ) {
-
-            $self->{logger}->log(
-                "Found $program at $path"
-            );
-        }
-    }
-
-    if (my $count = which('mdb-count')) {
-
-        $programs{'mdb-count'} = $count;
-
-        if (
-            $self->{verbose}
-            &&
-            $self->{logger}
-        ) {
-
-            $self->{logger}->log(
-                "Found mdb-count at $count"
-            );
-        }
-    }
-
-    $self->{programs} = \%programs;
-
-    return;
+	return $self;
 }
 
-sub _get_tables {
+# _verify_dependencies
+# Purpose:        Locate the mdbtools programs in PATH.
+# Entry Criteria: None.
+# Exit Status:    Returns $self; croaks if a required program is missing.
+# Side Effects:   Sets $self->{programs}; may switch off show_counts (with a
+#                 warning) when mdb-count is unavailable; logs at debug level.
+sub _verify_dependencies :Private {
+	my $self = shift;
 
-    my ($self, $database) = @_;
+	my %programs;
+	foreach my $program (@REQUIRED_PROGRAMS) {
+		$programs{$program} = $self->_find_program($program)
+			or $self->_croak_i18n('program_missing', { params => [$program] });
+	}
 
-    my ($stdout, $stderr) =
-        ('', '');
+	# mdb-count is only needed for row counts, so its absence is not fatal
+	if($self->{show_counts}) {
+		$programs{$MDB_COUNT} = $self->_find_program($MDB_COUNT);
+		if(!$programs{$MDB_COUNT}) {
+			delete $programs{$MDB_COUNT};
+			$self->{show_counts} = 0;
+			$self->_warn('no_row_counter');
+		}
+	}
 
-    run3(
-        [
-            $self->{programs}
-                ->{'mdb-tables'},
-            '-1',
-            $database,
-        ],
-        undef,
-        \$stdout,
-        \$stderr,
-    );
-
-    if ($?) {
-
-        my $rc = $? >> 8;
-
-        die "mdb-tables failed ($rc): $stderr\n";
-    }
-
-    my @tables =
-        sort
-        grep { length }
-        grep {
-            !$self->_is_system_table($_)
-        }
-        split /\n/, $stdout;
-
-    return @tables;
+	$self->{programs} = \%programs;
+	return $self;
 }
 
-sub _is_system_table {
+# _find_program
+# Purpose:        Look up one program in PATH and note where it was found.
+# Entry Criteria: $program is a bare program name.
+# Exit Status:    Returns the full path, or undef if not found.
+# Side Effects:   Logs the location at debug level when --verbose is on.
+sub _find_program :Private {
+	my ($self, $program) = @_;
 
-    my ($self, $table) = @_;
-
-    return 1 if $table =~ /^MSys/i;
-    return 1 if $table =~ /^USys/i;
-    return 1 if $table =~ /^~/;
-
-    return 0;
+	my $path = which($program);
+	if($path && $self->{verbose}) {
+		$self->_log(debug => 'program_found', { params => [$program, $path] });
+	}
+	return $path;
 }
 
-sub _export_table {
+# _reset_names
+# Purpose:        Forget file names allocated by a previous run() so that
+#                 running the same exporter twice gives the same names.
+# Entry Criteria: None.
+# Exit Status:    Returns $self.
+# Side Effects:   Empties $self->{used_names}.
+sub _reset_names :Private {
+	my $self = shift;
 
-    my (
-        $self,
-        $database,
-        $table,
-    ) = @_;
-
-    my ($stdout, $stderr) =
-        ('', '');
-
-    run3(
-        [
-            $self->{programs}
-                ->{'mdb-export'},
-            $database,
-            $table,
-        ],
-        undef,
-        \$stdout,
-        \$stderr,
-    );
-
-    if ($?) {
-
-        my $rc = $? >> 8;
-
-        die "mdb-export failed ($rc): $stderr\n";
-    }
-
-    my $outfile =
-        File::Spec->catfile(
-            $self->{output_dir},
-            $self->_csv_filename(
-                $table
-            ),
-        );
-
-    if (
-        -e $outfile
-        &&
-        !$self->{overwrite}
-    ) {
-
-        die "Output file already exists: $outfile\n";
-    }
-
-    open my $fh,
-        '>:raw',
-        $outfile;
-
-    if (
-        ($self->{encoding} || '')
-        eq 'utf8-bom'
-    ) {
-
-        print {$fh}
-            "\xEF\xBB\xBF";
-    }
-
-    print {$fh} $stdout;
-
-    close $fh;
-
-    if ($self->{logger}) {
-
-        $self->{logger}->log(
-            "Exported $table => $outfile"
-        );
-    }
-
-    return;
+	$self->{used_names} = {};
+	return $self;
 }
 
-sub _csv_filename {
+# _get_tables
+# Purpose:        List the user tables in the database.
+# Entry Criteria: _verify_dependencies() has run.
+# Exit Status:    Returns an arrayref of table names, sorted; croaks if
+#                 mdb-tables fails.
+# Side Effects:   Runs mdb-tables.
+sub _get_tables :Protected {
+	my ($self, $database) = @_;
 
-    my (
-        $self,
-        $table,
-    ) = @_;
+	# -1 puts one table per line, so names containing spaces survive
+	my $stdout = '';
+	$self->_run_program($MDB_TABLES, ['-1', $database], \$stdout);
 
-    my $name = $table;
-
-    $name =~ s/[<>:"\/\\|?*]/_/g;
-    $name =~ s/^\s+//;
-    $name =~ s/\s+$//;
-
-    $name = 'unnamed'
-        unless length $name;
-
-    my $file = "$name.csv";
-
-    my $used =
-        $self->{used_names};
-
-    if (
-        exists $used->{$file}
-    ) {
-
-        my $n =
-            ++$used->{$file};
-
-        $file =
-            sprintf(
-                '%s_%d.csv',
-                $name,
-                $n,
-            );
-    }
-    else {
-
-        $used->{$file} = 1;
-    }
-
-    return $file;
+	# \r? copes with mdbtools builds that emit CRLF line endings
+	my @tables = sort grep { length($_) && !$self->_is_system_table($_) } split /\r?\n/, $stdout;
+	return \@tables;
 }
 
-sub _dry_run {
+# _is_system_table
+# Purpose:        Decide whether a table is Access's own rather than the user's.
+# Entry Criteria: $table is a table name.
+# Exit Status:    Returns 1 for system tables, 0 otherwise.
+# Side Effects:   None.  Protected so that subclasses can widen the filter.
+sub _is_system_table :Protected {
+	my ($self, $table) = @_;
 
-    my (
-        $self,
-        @tables,
-    ) = @_;
+	return ($table =~ $SYSTEM_TABLE_RE) ? 1 : 0;
+}
 
-    print "\n";
-    print "DRY RUN\n";
-    print "=======\n\n";
+# _select_tables
+# Purpose:        Apply the --table filter to the list of tables.
+# Entry Criteria: $tables is the arrayref from _get_tables().
+# Exit Status:    Returns an arrayref, in database (sorted) order.
+# Side Effects:   Warns and logs about requested tables that do not exist.
+sub _select_tables :Private {
+	my ($self, $tables) = @_;
 
-    printf(
-        "%-40s %s\n",
-        'TABLE',
-        'OUTPUT FILE',
-    );
+	return $tables unless $self->{tables};
 
-    print '-' x 70, "\n";
+	# Matching is exact, as mdb-export itself is case-sensitive
+	my %available = map { $_ => 1 } @{$tables};
+	my %wanted    = map { $_ => 1 } @{ $self->{tables} };
 
-    foreach my $table (@tables) {
+	my @missing = sort grep { !$available{$_} } keys %wanted;
+	if(@missing) {
+		$self->_warn('unknown_tables', { params => [join(', ', @missing)], count => scalar(@missing) });
+	}
 
-        printf(
-            "%-40s %s\n",
-            $table,
-            $self->_csv_filename(
-                $table
-            ),
-        );
-    }
+	return [ grep { $wanted{$_} } @{$tables} ];
+}
 
-    print "\n";
+# _make_output_dir
+# Purpose:        Create the output directory (and parents) if necessary.
+# Entry Criteria: Not in dry-run mode.
+# Exit Status:    Returns $self; croaks if the directory cannot be created.
+# Side Effects:   Creates directories.
+sub _make_output_dir :Private {
+	my $self = shift;
 
-    return;
+	my $dir = $self->{output_dir};
+	return $self if -d $dir;
+
+	# Ask File::Path to report errors rather than carp/croak on its own,
+	# so the message can be translated and names the directory we wanted
+	make_path($dir, { error => \my $errors });
+	if(@{$errors} || !-d $dir) {
+		my ($detail) = map { values %{$_} } @{$errors};
+		$self->_croak_i18n('mkdir_failed', { params => [$dir, $detail || "$!"] });
+	}
+	return $self;
+}
+
+# _export_all
+# Purpose:        Export each table, carrying on past individual failures.
+# Entry Criteria: The output directory exists.
+# Exit Status:    Returns the number of tables that failed.
+# Side Effects:   Writes CSV files; prints progress; warns; logs.
+sub _export_all :Private {
+	my ($self, $database, $tables) = @_;
+
+	my $total  = scalar @{$tables};
+	my $failed = 0;
+
+	while(my ($index, $table) = each @{$tables}) {
+		# Progress goes to STDERR so that STDOUT can be redirected cleanly
+		if($self->{progress}) {
+			print STDERR $self->i18n('progress', { params => [$index + 1, $total, $table] }), "\n";
+		}
+
+		# One bad table should not stop the rest from being exported
+		next if eval { $self->_export_table($database, $table); 1 };
+
+		my $error = $@ || 'Unknown error';
+		chomp $error;
+		++$failed;
+		$self->_warn('export_failed', { params => [$table, $error] });
+	}
+
+	$self->_log(info => 'summary', { params => [$total, $failed], count => $total });
+	return $failed;
+}
+
+# _export_table
+# Purpose:        Export one table to its CSV file.
+# Entry Criteria: _verify_dependencies() and _make_output_dir() have run.
+# Exit Status:    Returns $self; croaks on any failure, leaving no partial file.
+# Side Effects:   Runs mdb-export (and mdb-count); creates or replaces a file.
+sub _export_table :Protected {
+	my ($self, $database, $table) = @_;
+
+	my $outfile = File::Spec->catfile($self->{output_dir}, $self->_csv_filename($table));
+
+	# Check before exporting so that we do not waste time on a big table
+	if(-e $outfile && !$self->{overwrite}) {
+		$self->_croak_i18n('output_exists', { params => [$outfile] });
+	}
+
+	# Write into a temporary file next to the target; it is deleted
+	# automatically if anything below croaks
+	my $tmp = File::Temp->new(DIR => $self->{output_dir}, TEMPLATE => $TEMP_TEMPLATE, UNLINK => 1);
+	binmode $tmp, ':raw';
+
+	if($self->{encoding} eq $ENC_CP1252) {
+		$self->_export_transcoded($database, $table, $tmp);
+	} else {
+		# The BOM must reach the file before mdb-export starts writing to
+		# the same descriptor, hence the explicit flush
+		print {$tmp} $UTF8_BOM if $self->{encoding} eq $ENC_UTF8_BOM;
+		$tmp->flush();
+		$self->_run_program($MDB_EXPORT, [$database, $table], $tmp);
+	}
+
+	$self->_install_file($tmp, $outfile);
+
+	# Row counts are optional extras, reported only if asked for
+	if($self->{show_counts}) {
+		my $rows = $self->_count_rows($database, $table);
+		$self->_log(info => 'exported_rows', { params => [$table, $outfile, $rows], count => $rows });
+	} else {
+		$self->_log(info => 'exported', { params => [$table, $outfile] });
+	}
+	return $self;
+}
+
+# _export_transcoded
+# Purpose:        Export a table and convert it from UTF-8 to Windows-1252.
+# Entry Criteria: $out is an open, raw, writable filehandle.
+# Exit Status:    Returns $self; croaks on invalid UTF-8 or on a character
+#                 that has no cp1252 equivalent (rather than silently
+#                 replacing it with '?').
+# Side Effects:   Runs mdb-export into a second temporary file.
+sub _export_transcoded :Private {
+	my ($self, $database, $table, $out) = @_;
+
+	# Spool to disk rather than memory, so huge tables do not exhaust RAM
+	my $spool = File::Temp->new(DIR => $self->{output_dir}, TEMPLATE => $TEMP_TEMPLATE, UNLINK => 1);
+	binmode $spool, ':raw';
+	$self->_run_program($MDB_EXPORT, [$database, $table], $spool);
+	seek $spool, 0, 0;
+
+	# Convert line by line; $. gives the user a line number to look at
+	while(my $line = <$spool>) {
+		my $chars = eval { Encode::decode('UTF-8', $line, FB_CROAK) };
+		$self->_croak_i18n('invalid_utf8', { params => [$table, $.] }) unless defined $chars;
+
+		my $bytes = eval { Encode::encode($ENC_CP1252, $chars, FB_CROAK) };
+		$self->_croak_i18n('unmappable', { params => [$table, $., $ENC_CP1252] }) unless defined $bytes;
+
+		print {$out} $bytes;
+	}
+	return $self;
+}
+
+# _install_file
+# Purpose:        Move a finished temporary file to its final name.
+# Entry Criteria: $tmp is a File::Temp holding the complete CSV.
+# Exit Status:    Returns $self; croaks if the rename or chmod fails.
+# Side Effects:   Replaces $outfile; the temporary file is no longer
+#                 auto-deleted.
+sub _install_file :Private {
+	my ($self, $tmp, $outfile) = @_;
+
+	# File::Temp creates files as 0600; give the CSV the permissions a
+	# normal open() would have, i.e. 0666 less the umask
+	my $ok = eval {
+		close $tmp;
+		chmod $FILE_MODE & ~umask(), $tmp->filename();
+		rename $tmp->filename(), $outfile;
+		1;
+	};
+	$self->_croak_i18n('write_failed', { params => [$outfile, _os_error($@)] }) unless $ok;
+
+	$tmp->unlink_on_destroy(0);
+	return $self;
+}
+
+# _count_rows
+# Purpose:        Ask mdb-count how many rows a table has.
+# Entry Criteria: $self->{programs}{'mdb-count'} is set.
+# Exit Status:    Returns a non-negative integer; croaks if mdb-count fails.
+# Side Effects:   Runs mdb-count.
+sub _count_rows :Private {
+	my ($self, $database, $table) = @_;
+
+	my $stdout = '';
+	$self->_run_program($MDB_COUNT, [$database, $table], \$stdout);
+
+	# mdb-count prints just the number, but be tolerant of whitespace
+	my ($rows) = $stdout =~ /(\d+)/;
+	return $rows || 0;
+}
+
+# _run_program
+# Purpose:        Run an mdbtools program and check that it succeeded.
+#                 Shared by every call to mdbtools, so that failures are
+#                 reported consistently.
+# Entry Criteria: $name is a key of $self->{programs}; $args is an arrayref;
+#                 $stdout is a scalar ref or a filehandle for run3().
+# Exit Status:    Returns $self; croaks if the program exits non-zero or
+#                 dies from a signal.
+# Side Effects:   Runs a child process; writes to $stdout; sets $?.
+sub _run_program :Private {
+	my ($self, $name, $args, $stdout) = @_;
+
+	# A list (not a string) is passed, so no shell ever sees the file or
+	# table name and quoting cannot be abused
+	my $stderr = '';
+	run3([$self->{programs}{$name}, @{$args}], \undef, $stdout, \$stderr);
+
+	# Distinguish a signal from an ordinary non-zero exit status
+	my $status = $?;
+	chomp $stderr;
+	if($status & 127) {
+		$self->_croak_i18n('program_signalled', { params => [$name, $status & 127] });
+	}
+	if($status) {
+		$self->_croak_i18n('program_failed', { params => [$name, $status >> 8, $stderr] });
+	}
+	return $self;
+}
+
+# _csv_filename
+# Purpose:        Turn a table name into a safe, unique CSV file name.
+# Entry Criteria: $table is a table name (possibly empty).
+# Exit Status:    Returns a file name (no directory) ending in ".csv".
+# Side Effects:   Records the name in $self->{used_names}.
+#
+# Names are compared case-insensitively, because Windows and macOS file
+# systems are, so "Orders" and "ORDERS" do not overwrite each other.
+# The loop (rather than a single suffix) guarantees uniqueness even when
+# another table is literally called "Orders_2".
+sub _csv_filename :Protected {
+	my ($self, $table) = @_;
+
+	my $name = defined($table) ? $table : '';
+
+	# Replace characters that are illegal somewhere, then strip leading
+	# and trailing whitespace; Windows also silently drops trailing dots
+	$name =~ s/$UNSAFE_CHARS_RE/_/g;
+	$name =~ s/\A\s+//;
+	$name =~ s/[\s.]+\z//;
+
+	# Avoid hidden files, Windows device names and empty names
+	$name =~ s/\A\./_/;
+	$name = "_$name" if $name =~ $RESERVED_NAME_RE;
+	$name = $UNNAMED unless length $name;
+
+	my $used = $self->{used_names};
+	my $file = $name . $CSV_SUFFIX;
+	for(my $n = 2; exists $used->{lc $file}; $n++) {
+		$file = "${name}_$n$CSV_SUFFIX";
+	}
+	$used->{lc $file} = 1;
+
+	return $file;
+}
+
+# _dry_run
+# Purpose:        Print the table -> file mapping without writing anything.
+# Entry Criteria: $tables is the arrayref of selected tables.
+# Exit Status:    Returns $self.
+# Side Effects:   Prints to STDOUT; runs mdb-count when show_counts is on.
+sub _dry_run :Private {
+	my ($self, $database, $tables) = @_;
+
+	# Only show the ROWS column when counts are actually available
+	my $counts = $self->{show_counts};
+	my $format = $counts
+		? "%-${TABLE_COLUMN_WIDTH}s %${ROWS_COLUMN_WIDTH}s  %s\n"
+		: "%-${TABLE_COLUMN_WIDTH}s %s\n";
+	my @header = map { $self->i18n($_) } ($counts ? qw(column_table column_rows column_output) : qw(column_table column_output));
+
+	# Underline the title to the length of whatever the translation is
+	my $title = $self->i18n('dry_run_title');
+	print "\n$title\n", '=' x length($title), "\n\n";
+	printf $format, @header;
+	print '-' x $RULE_WIDTH, "\n";
+
+	foreach my $table (@{$tables}) {
+		my @row = ($table);
+		push @row, $self->_count_rows($database, $table) if $counts;
+		printf $format, @row, $self->_csv_filename($table);
+	}
+	print "\n";
+
+	return $self;
+}
+
+# _warn
+# Purpose:        Warn the user and record the same text in the log.
+# Entry Criteria: $key is a catalog key; $args an optional i18n() hashref.
+# Exit Status:    Returns $self.
+# Side Effects:   carp()s; logs at warn level.
+sub _warn :Private {
+	my ($self, $key, $args) = @_;
+
+	$self->_carp_i18n($key, $args);
+	return $self->_log(warn => $key, $args);
+}
+
+# _log
+# Purpose:        Send a localised message to the logger, if there is one.
+# Entry Criteria: $level is a logger method name (debug, info or warn).
+# Exit Status:    Returns $self.
+# Side Effects:   Calls $self->{logger}->$level().
+sub _log :Private {
+	my ($self, $level, $key, $args) = @_;
+
+	$self->{logger}->$level($self->i18n($key, $args)) if $self->{logger};
+	return $self;
+}
+
+# _os_error
+# Purpose:        Get a readable OS error from an autodie exception or string.
+# Entry Criteria: $error is whatever eval left in $@.
+# Exit Status:    Returns a string.
+# Side Effects:   None.  A plain function, not a method.
+sub _os_error :Private {
+	my $error = shift;
+
+	# autodie::exception keeps the original $! for us
+	my $text = (ref($error) && $error->can('errno')) ? $error->errno() : "$error";
+	chomp $text;
+	return $text;
 }
 
 1;
+
+__END__
+
+=head1 LIMITATIONS
+
+=over 4
+
+=item * mdb-export is assumed to emit UTF-8, which is what mdbtools does
+when built with iconv (the default).  If the C<MDB_ICONV> environment
+variable selects another character set, C<cp1252> conversion reports
+invalid UTF-8.
+
+=item * C<cp1252> conversion refuses (and fails the table) at the first
+character with no Windows-1252 equivalent, rather than silently
+substituting C<?>.  Line numbers count physical lines, so a memo field
+with embedded newlines spans several lines.
+
+=item * The "already exists" check and the final rename are not one atomic
+operation; another process creating the same file in between would be
+overwritten.
+
+=item * File names are made safe for Windows, macOS and Unix, but are not
+truncated; Access limits table names to 64 characters, well within
+common file-name limits.
+
+=item * The table filter is case-sensitive, as mdb-export is.
+
+=item * Row counts cost one extra mdb-count process per table.
+
+=item * Private and protected methods are enforced by L<Sub::Private> and
+L<Sub::Protected> only when this module is loaded at compile time
+(C<use>).  Under C<$ENV{HARNESS_ACTIVE}> the checks are bypassed so that
+white-box tests can call them.
+
+=back
+
+=head1 SEE ALSO
+
+L<App::Access2CSV>, L<https://github.com/mdbtools/mdbtools>
+
+=head1 AUTHOR
+
+Nigel Horne, C<< <nigel.horne at gmail.com> >>
+
+=head1 LICENSE AND COPYRIGHT
+
+This program is released under the same terms as Perl itself.
+
+=cut
