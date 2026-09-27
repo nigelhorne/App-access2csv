@@ -6,6 +6,7 @@ use warnings;
 use autodie;
 use File::Path qw(make_path);
 use File::Spec;
+use File::Which qw(which);
 use IPC::Run3 qw(run3);
 
 sub new {
@@ -41,10 +42,7 @@ sub run {
 
     if ($self->{dry_run}) {
 
-        $self->_dry_run(
-            $database,
-            @tables,
-        );
+        $self->_dry_run(@tables);
 
         return 0;
     }
@@ -78,17 +76,31 @@ sub run {
         }
         or do {
 
-            ++$failed;
-
-            my $err =
+            my $error =
                 $@ || 'Unknown error';
 
-            warn $err;
+            ++$failed;
 
-            $self->{logger}->log(
-                "FAILED: $table : $err"
-            );
+            warn $error;
+
+            if ($self->{logger}) {
+
+                $self->{logger}->log(
+                    "FAILED: $table : $error"
+                );
+            }
         };
+    }
+
+    if ($self->{logger}) {
+
+        $self->{logger}->log(
+            sprintf(
+                'Processed=%d Failed=%d',
+                $total,
+                $failed,
+            )
+        );
     }
 
     return $failed ? 1 : 0;
@@ -98,38 +110,66 @@ sub _verify_dependencies {
 
     my ($self) = @_;
 
-    foreach my $cmd (
+    my %programs;
+
+    foreach my $program (
         qw(
             mdb-tables
             mdb-export
         )
     ) {
 
-        my ($out, $err);
+        my $path = which($program);
 
-        run3(
-            [ $cmd, '--help' ],
-            undef,
-            \$out,
-            \$err,
-        );
+        die "Required program not found in PATH: $program\n"
+            unless $path;
+
+        $programs{$program} = $path;
+
+        if (
+            $self->{verbose}
+            &&
+            $self->{logger}
+        ) {
+
+            $self->{logger}->log(
+                "Found $program at $path"
+            );
+        }
     }
+
+    if (my $count = which('mdb-count')) {
+
+        $programs{'mdb-count'} = $count;
+
+        if (
+            $self->{verbose}
+            &&
+            $self->{logger}
+        ) {
+
+            $self->{logger}->log(
+                "Found mdb-count at $count"
+            );
+        }
+    }
+
+    $self->{programs} = \%programs;
 
     return;
 }
 
 sub _get_tables {
 
-    my (
-        $self,
-        $database
-    ) = @_;
+    my ($self, $database) = @_;
 
-    my ($stdout, $stderr);
+    my ($stdout, $stderr) =
+        ('', '');
 
     run3(
         [
-            'mdb-tables',
+            $self->{programs}
+                ->{'mdb-tables'},
             '-1',
             $database,
         ],
@@ -138,25 +178,27 @@ sub _get_tables {
         \$stderr,
     );
 
-    die $stderr if $?;
+    if ($?) {
+
+        my $rc = $? >> 8;
+
+        die "mdb-tables failed ($rc): $stderr\n";
+    }
 
     my @tables =
+        sort
+        grep { length }
+        grep {
+            !$self->_is_system_table($_)
+        }
         split /\n/, $stdout;
 
-    @tables =
-        grep { length }
-        grep { !$self->_is_system_table($_) }
-        @tables;
-
-    return sort @tables;
+    return @tables;
 }
 
 sub _is_system_table {
 
-    my (
-        $self,
-        $table
-    ) = @_;
+    my ($self, $table) = @_;
 
     return 1 if $table =~ /^MSys/i;
     return 1 if $table =~ /^USys/i;
@@ -170,14 +212,16 @@ sub _export_table {
     my (
         $self,
         $database,
-        $table
+        $table,
     ) = @_;
 
-    my ($stdout, $stderr);
+    my ($stdout, $stderr) =
+        ('', '');
 
     run3(
         [
-            'mdb-export',
+            $self->{programs}
+                ->{'mdb-export'},
             $database,
             $table,
         ],
@@ -186,7 +230,12 @@ sub _export_table {
         \$stderr,
     );
 
-    die $stderr if $?;
+    if ($?) {
+
+        my $rc = $? >> 8;
+
+        die "mdb-export failed ($rc): $stderr\n";
+    }
 
     my $outfile =
         File::Spec->catfile(
@@ -202,7 +251,7 @@ sub _export_table {
         !$self->{overwrite}
     ) {
 
-        die "File exists: $outfile\n";
+        die "Output file already exists: $outfile\n";
     }
 
     open my $fh,
@@ -210,7 +259,7 @@ sub _export_table {
         $outfile;
 
     if (
-        $self->{encoding}
+        ($self->{encoding} || '')
         eq 'utf8-bom'
     ) {
 
@@ -222,9 +271,12 @@ sub _export_table {
 
     close $fh;
 
-    $self->{logger}->log(
-        "Exported $table => $outfile"
-    );
+    if ($self->{logger}) {
+
+        $self->{logger}->log(
+            "Exported $table => $outfile"
+        );
+    }
 
     return;
 }
@@ -233,14 +285,14 @@ sub _csv_filename {
 
     my (
         $self,
-        $table
+        $table,
     ) = @_;
 
     my $name = $table;
 
     $name =~ s/[<>:"\/\\|?*]/_/g;
-    $name =~ s/\s+$//;
     $name =~ s/^\s+//;
+    $name =~ s/\s+$//;
 
     $name = 'unnamed'
         unless length $name;
@@ -254,7 +306,8 @@ sub _csv_filename {
         exists $used->{$file}
     ) {
 
-        my $n = ++$used->{$file};
+        my $n =
+            ++$used->{$file};
 
         $file =
             sprintf(
@@ -275,22 +328,30 @@ sub _dry_run {
 
     my (
         $self,
-        $database,
-        @tables
+        @tables,
     ) = @_;
 
     print "\n";
     print "DRY RUN\n";
     print "=======\n\n";
 
+    printf(
+        "%-40s %s\n",
+        'TABLE',
+        'OUTPUT FILE',
+    );
+
+    print '-' x 70, "\n";
+
     foreach my $table (@tables) {
 
-        my $file =
+        printf(
+            "%-40s %s\n",
+            $table,
             $self->_csv_filename(
                 $table
-            );
-
-        print "$table => $file\n";
+            ),
+        );
     }
 
     print "\n";
