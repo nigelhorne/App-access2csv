@@ -99,6 +99,26 @@ subtest 'errors' => sub {
 	is($class->i18n('summary', { params => [2, 0], count => undef }), 'Processed 2 tables, 0 failed', 'undef count means not given');
 };
 
+subtest 'a broken language choice cannot make i18n recurse' => sub {
+	# Regression: the English fallback used to call i18n() again with an
+	# object pinned to English, trusting _language() to answer "en".  A
+	# mutation of _language that always returned "" made that recursion
+	# endless (CI ran out of memory).  Whatever _language returns, a
+	# template with no usable form must now fail at once.
+	require Test::Mockingbird;
+	local $App::Access2CSV::I18N::MESSAGES{en}{broken} = { one => 'x' };
+	local $SIG{ALRM} = sub { die "i18n did not return: runaway recursion\n" };
+
+	foreach my $answer ('', 'xx', 'en', undef) {
+		my $guard = Test::Mockingbird::mock_scoped('App::Access2CSV::I18N::_language' => sub { $answer });
+		alarm(10);
+		throws_ok { $class->i18n('broken', { count => 2 }) } qr/\AUnknown message key: broken at /,
+			'_language returning ' . (defined $answer ? "'$answer'" : 'undef') . ': fails at once';
+		alarm(0);
+		is($class->i18n('summary', { params => [2, 0], count => 2 }), 'Processed 2 tables, 0 failed', '... and complete templates still work');
+	}
+};
+
 subtest 'protected helpers' => sub {
 	my $obj = Local::Sub->new();
 

@@ -408,12 +408,15 @@ Valid and invalid values (tested in F<t/domain.t>):
 	check key and args
 	lang := the object's language, or the language from the environment,
 	        or English if there is no catalog for it
-	entry := catalog[lang][key], or else catalog[en][key], or else confess
-	if entry has forms and one matches args.context:
-		entry := that form
-	if entry still has forms:
-		entry := the form for plural_category(lang, count),
-		         or else the "other" form
+	for try in (lang, then en if lang is not en):   # at most 2 tries, no recursion
+		entry := catalog[try][key], or else catalog[en][key]
+		if entry has forms and one matches args.context:
+			entry := that form
+		if entry still has forms:
+			entry := the form for plural_category(try, count),
+			         or else the "other" form
+		stop if entry is now a plain string
+	if no try gave a plain string: confess (the catalog is broken)
 	if there are params: return sprintf(entry, params)
 	else: return entry unchanged
 
@@ -448,31 +451,23 @@ sub i18n {
 	my $args = $params->{args} || {};
 
 	# Resolve the template in the user's language, falling back to English
-	my $lang = $self->_language();
-	my $entry = $self->_lookup($lang, $params->{key});
+	# Try the chosen language, then English: a fixed list of at most two
+	# attempts.  There is deliberately no recursion here, so no mistake in
+	# choosing the language (a bug, or a mutation of _language) can ever
+	# make this loop forever.
+	my $key = $params->{key};
+	# An undefined language (only possible through a bug) means English
+	my $lang = $self->_language() // $DEFAULT_LANGUAGE;
+	my $entry;
+	foreach my $try ($lang eq $DEFAULT_LANGUAGE ? ($lang) : ($lang, $DEFAULT_LANGUAGE)) {
+		$entry = _narrow($self->_lookup($try, $key), $try, $args);
+		last if defined $entry;
+	}
 
-	# Narrow a structured template down to a single sprintf() format
-	if(ref($entry) eq 'HASH' && defined($args->{context}) && exists($entry->{$args->{context}})) {
-		$entry = $entry->{$args->{context}};
-	}
-	if(ref($entry) eq 'HASH') {
-		my $category = _plural_category($lang, $args->{count});
-		$entry = exists($entry->{$category}) ? $entry->{$category} : $entry->{$PLURAL_OTHER};
-	}
-
-	# A translation with forms missing (no match and no "other") would
-	# leave $entry undefined; fall back to the English text for this key,
-	# as for any other gap in a translation
-	if(!defined($entry) || ref($entry)) {
-		# An object pinned to English, so the retry cannot pick this
-		# language again and recurse
-		# Premise 1: every English template is complete.  Premise 2: this
-		# one is not.  Conclusion: either we are not in English (so retry in
-		# English), or the English catalog is broken (a programming error).
-		my $english = bless { language => $DEFAULT_LANGUAGE }, __PACKAGE__;
-		return $english->i18n({ key => $params->{key}, args => $args }) if $lang ne $DEFAULT_LANGUAGE;
-		_unknown_key($params->{key});
-	}
+	# Premise 1: every English template is complete.  Premise 2: not even
+	# the English one gave a usable form.  Conclusion: the catalog is
+	# broken, which is a programming error.
+	_unknown_key($key) unless defined $entry;
 
 	# A literal message with no placeholders is returned untouched, which
 	# protects any '%' characters it contains from sprintf()
@@ -543,6 +538,29 @@ sub _lookup :Private {
 	}
 
 	return _unknown_key($key);
+}
+
+# _narrow
+# Purpose:        Reduce a template to one sprintf() format: first the
+#                 form for the context (if the template has one), then
+#                 the plural form for the count, falling back to "other".
+# Entry Criteria: $entry is a string or hashref template; $lang is the
+#                 language whose plural rule applies; $args is the
+#                 validated i18n() args hashref.
+# Exit Status:    Returns a plain string, or undef if the template has no
+#                 usable form (a gap in a translation).
+# Side Effects:   None.  A plain function, not a method.
+sub _narrow :Private {
+	my ($entry, $lang, $args) = @_;
+
+	if(ref($entry) eq 'HASH' && defined($args->{context}) && exists($entry->{$args->{context}})) {
+		$entry = $entry->{$args->{context}};
+	}
+	if(ref($entry) eq 'HASH') {
+		my $category = _plural_category($lang, $args->{count});
+		$entry = exists($entry->{$category}) ? $entry->{$category} : $entry->{$PLURAL_OTHER};
+	}
+	return (defined($entry) && !ref($entry)) ? $entry : undef;
 }
 
 # _unknown_key

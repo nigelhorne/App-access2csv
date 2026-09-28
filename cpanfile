@@ -15,6 +15,7 @@ requires 'Params::Validate::Strict', '0.40';
 requires 'Pod::Usage';
 requires 'Readonly';
 requires 'Return::Set';
+requires 'Scalar::Util';
 requires 'Sub::Private', '0.05';   # first version with enforce mode
 requires 'Sub::Protected';
 requires 'autodie';

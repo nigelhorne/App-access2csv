@@ -20,4 +20,5 @@ t/integration.t
 t/lib/FakeMDB.pm
 t/locales.t
 t/logic-proofs.t
+t/logic.t
 t/unit.t

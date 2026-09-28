@@ -21,6 +21,7 @@ use Params::Get qw(get_params);
 use Params::Validate::Strict qw(validate_strict);
 use Readonly;
 use Return::Set qw(set_return);
+use Scalar::Util qw(blessed);
 use Sub::Private;
 use Sub::Protected;
 
@@ -1105,8 +1106,10 @@ sub _log :Private {
 sub _os_error :Private {
 	my $error = shift;
 
-	# autodie::exception keeps the original $! for us
-	my $text = (ref($error) && $error->can('errno')) ? $error->errno() : "$error";
+	# autodie::exception keeps the original $! for us.  blessed(), not
+	# ref(): asking an unblessed reference ->can() would die and hide
+	# the real error.
+	my $text = (blessed($error) && $error->can('errno')) ? $error->errno() : "$error";
 	chomp $text;
 	return $text;
 }

@@ -31,6 +31,7 @@ WriteMakefile(
 		'Pod::Usage'   => 0,
 		'Readonly'     => 0,
 		'Return::Set'  => 0,
+		'Scalar::Util' => 0,
 		'Sub::Private' => 0.05,	# first version with enforce mode
 		'Sub::Protected' => 0,
 	},
