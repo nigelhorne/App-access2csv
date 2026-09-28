@@ -24,6 +24,54 @@ use Sub::Private;
 
 our $VERSION = '0.001.0';
 
+# ---------------------------------------------------------------------
+# Roadmap (from the pre-release gap analysis)
+#
+# Features
+# TODO: Pass mdbtools' CSV options through: --delimiter, --quote,
+#	--date-format, --no-header, binary column handling (mdb-export's
+#	-d, -q, -D, -H and -b).
+# TODO: --schema: write each table's definition next to its data, using
+#	mdb-schema.
+# TODO: Export one table to standard output (--table X --output -), for
+#	use in pipes.
+# TODO: --gzip, or a single ZIP file holding all the CSV files.
+# TODO: More output formats: JSON Lines, and SQL INSERT statements
+#	(mdb-export -I).
+# TODO: --jobs N: export several tables at once.  Starting one mdbtools
+#	process per table is the main cost of a run.
+# TODO: A second back end using ODBC (DBD::ODBC with the Microsoft Access
+#	driver), so Windows does not need mdbtools.
+# TODO: Ship at least one real translation (e.g. German) to prove the
+#	message catalog end to end.
+# TODO: Read settings from a configuration file via Object::Configure;
+#	%DEFAULTS is already laid out for it.
+# TODO: Optionally exit 130 on Ctrl-C (the shell convention), not 3.
+#
+# Technical debt
+# TODO: Sub::Private/Sub::Protected hide the real subs from Devel::Cover
+#	(worked around by the CHECK block in I18N.pm) and refuse
+#	Test::Mockingbird hooks unless $Sub::*::BYPASS is set.  Fix both in
+#	Sub::Private/Sub::Protected, then drop the workaround.
+# TODO: Remove the IO::Handle::flush workaround in t/edge_cases.t once the
+#	Test::Mockingbird fix for mocking inherited methods is released.
+# TODO: IPC::Run3 does not reveal the child's process ID, so after SIGTERM
+#	the running mdb-export is not stopped.  Moving to IPC::Run or
+#	IPC::Open3 would allow that, and streaming for --jobs.
+# TODO: The log symlink check and Log::Abstraction's own open are two
+#	steps; closing that gap needs Log::Abstraction to accept an open
+#	filehandle.
+# TODO: I18N.pm also holds helpers unrelated to messages (_printable,
+#	_interrupt_signals, the coverage CHECK block); move them to a small
+#	shared module, and remove the duplicated control-character patterns
+#	(I18N.pm and Exporter.pm) at the same time.
+# TODO: The test files repeat the same helpers (slurp, new_database, cli,
+#	stand-in set-up); a shared t/lib helper module would shrink them and
+#	remove most Windows skips in one place.
+# TODO: Tests read exporter internals ($e->{show_counts}, {used_names});
+#	small read-only accessors would make refactoring safer.
+# ---------------------------------------------------------------------
+
 # Stop Carp from reporting errors against the access-control wrappers
 our @CARP_NOT = qw(Sub::Private Sub::Protected App::Access2CSV::I18N);
 
@@ -227,6 +275,10 @@ Print the synopsis and the options, then stop.
 
 Print this whole manual, then stop.
 
+=item B<--version>
+
+Print the version ("access2csv version 0.001.0"), then stop.
+
 =back
 
 =head1 EXIT STATUS
@@ -234,11 +286,11 @@ Print this whole manual, then stop.
 The program ends with one of these numbers.  Scripts can test it.
 
 	0  Every selected table was exported.  Also used for --dry-run,
-	   --help and --man.
+	   --help, --man and --version.
 	1  At least one table was not exported.  The other tables were.
-	2  The command line was wrong, for example an unknown option or no
-	   database name, or "-" was given while standard input is a
-	   terminal.
+	2  The command line was wrong, for example an unknown option, an
+	   invalid value (--encoding latin1), no database name, or "-" while
+	   standard input is a terminal.  Nothing has been done.
 	3  A fatal error happened before any table was exported, for example
 	   the database does not exist or mdbtools is not installed.
 
@@ -481,7 +533,7 @@ Valid and invalid values (tested in F<t/domain.t>):
 	database names  exactly 1; 0 or 2 or more give exit status 2.
 	                "-" means standard input (exit 2 if it is a
 	                terminal, 3 if it is empty or unreadable)
-	--encoding      utf8, utf8-bom or cp1252; anything else gives exit 3
+	--encoding      utf8, utf8-bom or cp1252; anything else gives exit 2
 	--table         0 times (all tables), once, or many times; names
 	                may be non-ASCII
 	--log           a file name; '' means no log, like --no-log
@@ -503,6 +555,9 @@ Valid and invalid values (tested in F<t/domain.t>):
 	|                                     | program                       |                              |
 	| Option X requires an argument       | An option such as --log was   | Give a value after it        |
 	|  (exit 2)                           | the last word                 |                              |
+	| Invalid setting: REASON (exit 2)    | An option value is not        | Use a documented value (see  |
+	|                                     | allowed, e.g. --encoding      | OPTIONS)                     |
+	|                                     | latin1; REASON says which     |                              |
 	| Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
 	|                                     | it was empty, or more than    |                              |
 	|                                     | one was given                 |                              |
@@ -553,15 +608,18 @@ sub run {
 	my %opt = %DEFAULTS;
 	my $status = $class->_parse_options(\@argv, \%opt);
 
+	# CHECKING SETTINGS: a bad option value (e.g. --encoding latin1) is a
+	# command-line mistake like any other: a usage error (exit 2), found
+	# before anything with a side effect happens - before standard input
+	# is copied and before the log file is created
+	my %settings = map { $_ => $opt{$_} } grep { $_ ne 'log' } keys %opt;
+	if(!defined($status) && !eval { App::Access2CSV::Exporter->new(%settings); 1 }) {
+		$status = $class->_usage($EXIT_USAGE, $POD_SYNOPSIS, _strip_location($@));
+	}
+
 	if(!defined $status) {
 		# Any croak from here on is a fatal error: report it, don't die
 		$status = eval {
-			# CHECKING SETTINGS: refuse bad option values (e.g. --encoding
-			# latin1) before anything with a side effect happens - before
-			# standard input is copied and before the log file is created
-			my %settings = map { $_ => $opt{$_} } grep { $_ ne 'log' } keys %opt;
-			App::Access2CSV::Exporter->new(%settings);
-
 			# READING STDIN: "-" means standard input.  mdbtools can only
 			# read a real file, so the data is copied to a private temporary
 			# file first; the copy is deleted when $piped goes out of scope,
@@ -590,7 +648,7 @@ sub run {
 sub _parse_options :Private {
 	my ($class, $argv, $opt) = @_;
 
-	my $help = 0;
+	my ($help, $show_version) = (0, 0);
 	my $parsed = GetOptionsFromArray(
 		$argv,
 		'output-dir=s' => \$opt->{output_dir},
@@ -605,12 +663,17 @@ sub _parse_options :Private {
 		'no-log'       => sub { $opt->{log} = undef },
 		'help|h'       => sub { $help = $POD_OPTIONS },
 		'man'          => sub { $help = $POD_FULL },
+		'version'      => \$show_version,
 	);
 
 	# Only one of these applies; the first match decides the exit status.
 	# Getopt::Long has already warned about any unknown option.
 	return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS) unless $parsed;
 	return $class->_usage($EXIT_OK, $help) if $help;
+	if($show_version) {
+		print $class->i18n('version', { params => [$VERSION] }), "\n";
+		return $EXIT_OK;
+	}
 	# An empty or undefined name is as good as no name at all.  length()
 	# of an empty string is 0, so one length test covers "", and "// ''"
 	# turns undef into "" first.
@@ -737,6 +800,31 @@ sub _read_stdin :Private {
 	return $copy;
 }
 
+# _strip_location
+# Purpose:        Remove the " at FILE line N." that Carp appends, which is
+#                 noise for a command-line user.
+# Entry Criteria: $text is an error message.
+# Exit Status:    Returns the message without the location or newline.
+# Side Effects:   None.  A plain function, not a method.
+#
+# The file name may contain spaces ("My Documents"), so it cannot be
+# matched as \S+.  Instead: " at ", then the shortest run of characters
+# that does not contain another " at ", then " line N." at the very end.
+# The (?! at ) guard keeps this linear: each attempt stops at the next
+# " at ", so no character is scanned by more than one attempt.
+sub _strip_location :Private {
+	my $text = shift;
+
+	$text =~ s/
+		[ ] at [ ]                  # Carp's separator
+		(?: (?! [ ] at [ ] ) . )*?  # the file name: anything but another " at "
+		[ ] line [ ] \d+ \.?        # " line 42."
+		\n? \z                      # at the very end
+	//x;
+	chomp $text;
+	return $text;
+}
+
 # _failure_reason
 # Purpose:        Explain why an eval failed.  An autodie exception carries
 #                 the operating system's reason; anything else (such as a
@@ -749,9 +837,7 @@ sub _failure_reason :Private {
 	my $error = shift;
 
 	my $reason = (blessed($error) && $error->can('errno') && length($error->errno())) ? $error->errno() : "$error";
-	$reason =~ s/ at \S+ line \d+\.?\n?\z//;
-	chomp $reason;
-	return $reason;
+	return _strip_location($reason);
 }
 
 # _no_follow
@@ -775,17 +861,7 @@ sub _report_fatal :Private {
 	# Carp appends " at FILE line N."; that is noise for a command-line
 	# user, but useful when debugging, so keep it with --verbose
 	my $text = length($error // '') ? "$error" : 'Unknown error';
-	# The file name may contain spaces ("My Documents"), so it cannot be
-	# matched as \S+.  Instead: " at ", then the shortest run of characters
-	# that does not contain another " at ", then " line N." at the very
-	# end.  The (?! at ) guard keeps this linear: each attempt stops at the
-	# next " at ", so no character is scanned by more than one attempt.
-	$text =~ s/
-		[ ] at [ ]                  # Carp's separator
-		(?: (?! [ ] at [ ] ) . )*?  # the file name: anything but another " at "
-		[ ] line [ ] \d+ \.?        # " line 42."
-		\n? \z                      # at the very end
-	//x unless $verbose;
+	$text = $verbose ? $text : _strip_location($text);
 	chomp $text;
 
 	# The reason may quote a hostile table name or file name: escape it
@@ -806,8 +882,16 @@ bugs, and their CSV style (quoting, date format, binary columns), are
 passed on unchanged.  No maintained CPAN module can read C<.accdb> files,
 so there is no pure-Perl alternative today.
 
-=item * Messages that come from L<Getopt::Long>, L<Params::Validate::Strict>
-and L<autodie> are not translated.
+=item * The reason inside "Invalid setting: ..." comes from
+L<Params::Validate::Strict>, and messages from L<Getopt::Long> and
+L<autodie> come from those modules; none of them is translated.
+
+=item * B<Windows.>  The code handles Windows (its C<PATH> separator, the
+absence of Unix permission bits and of signals), and the core export
+tests (F<t/exporter.t>, F<t/app.t>) run there.  Most other test files
+use Unix-only facilities (signals, symbolic links, F</proc>, taint-mode
+child processes, terminals) and are skipped on Windows, so those
+features are tested on Unix only.
 
 =item * The default log file is created in the current folder, which may
 surprise users.
@@ -817,6 +901,19 @@ so that L<Object::Configure> could read them from a configuration file,
 but this is not connected yet.
 
 =back
+
+=head1 TESTING WITH REAL DATABASES
+
+Most tests use stand-in mdbtools programs.  F<t/real-mdbtools.t> checks
+the program against the real mdbtools and real Access files: every CSV
+must be byte for byte what C<mdb-export> prints.  No database ships with
+this distribution; point C<ACCESS2CSV_TEST_DATA> at a folder of
+C<.mdb>/C<.accdb> files, for example the mdbtools project's test data:
+
+	git clone --depth 1 https://github.com/mdbtools/mdbtestdata
+	ACCESS2CSV_TEST_DATA=mdbtestdata/data prove -l t/real-mdbtools.t
+
+The continuous-integration workflow does this on Linux.
 
 =head1 SEE ALSO
 
@@ -846,7 +943,7 @@ You do not need to read this section to use the program.
 	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
 	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧ head rest = "-" ∧
 	│   isTerminal(stdin) ⇒ status! = 2
-	│ ¬ valid(opts) ⇒ status! = 3 ∧ files' = files   -- checked first: no copy, no log
+	│ ¬ valid(opts) ⇒ status! = 2 ∧ files' = files   -- checked first: no copy, no log
 	│ db = (if head rest = "-" then copy(stdin) else head rest)
 	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧
 	│   ¬ (head rest = "-" ∧ isTerminal(stdin)) ⇒
@@ -881,44 +978,47 @@ happens on the way.
 	              |    PARSING    |  read options into the settings
 	              +---------------+
 	               |      |      |
-	 bad option,   |      |      | --help / --man
-	 missing value,|      |      | action: print documentation to STDOUT
+	 bad option,   |      |      | --help / --man / --version
+	 missing value,|      |      | action: print it to STDOUT
 	 not exactly   |      |      v
 	 one database, |      |   +--------+
 	 or "-" while  |      |   |  HELP  |---> return 0
 	 standard input|      |   +--------+
 	 is a terminal |      |
-	 action: print |      | options parsed, one database
-	 usage to      |      v
-	 STDERR        |   +--------------------+  invalid value, e.g.
-	               |   | CHECKING SETTINGS  |  --encoding latin1 (croak)
-	               |   +--------------------+-----------------------+
-	               v             | valid                             |
-	      +-------------+        v                                   |
-	      | USAGE ERROR |  +--------------------+  empty, unreadable, |
-	      +-------------+  |   READING STDIN    |  or interrupted     |
-	          |            | (only for "-")     |  (croak)            |
-	 return 2 <           +--------------------+---------------------+
-	                        | action: copy standard input to a        |
-	                        |   private temporary file                |
-	                        v                                         |
-	              +--------------------+  log cannot be opened        |
-	              |    OPENING LOG     |  (croak)                     |
-	              | (not with --no-log)|------------------------------+
-	              +--------------------+                              |
-	                        | log is writable                         |
-	                        v                                         |
-	              +--------------------+                              |
-	              | EXPORTING          |  fatal error (croak)         |
-	              | (Exporter->run,    |------------------------------+
-	              |  see its STATE     |                              |
-	              |  DIAGRAM)          |                              v
-	              +--------------------+                   +------------------+
-	                 |              |                      |      FATAL       |
-	   all tables OK,|              | some table           +------------------+
-	   or dry run    |              | failed               action: print
-	                 v              v                      "access2csv: <reason>"
-	             return 0       return 1                   to STDERR; return 3
+	               |      | options parsed, one database
+	               |      v
+	               |   +--------------------+
+	               |   | CHECKING SETTINGS  |
+	               |   +--------------------+
+	               |      |               |
+	               |<-----+ invalid value | valid
+	               |        (e.g.         |
+	               |        --encoding    |
+	 action: print |        latin1)       v
+	 the reason    |              +--------------------+  empty, unreadable,
+	 and usage to  |              |   READING STDIN    |  or interrupted
+	 STDERR        v              | (only for "-")     |  (croak) ------------+
+	      +-------------+         +--------------------+                      |
+	      | USAGE ERROR |           | action: copy standard input to a        |
+	      +-------------+           |   private temporary file                |
+	          |                     v                                         |
+	 return 2 <           +--------------------+  log cannot be opened        |
+	                      |    OPENING LOG     |  (croak)                     |
+	                      | (not with --no-log)|------------------------------+
+	                      +--------------------+                              |
+	                        | log is writable                                 |
+	                        v                                                 |
+	              +--------------------+                                      |
+	              | EXPORTING          |  fatal error (croak)                 |
+	              | (Exporter->run,    |--------------------------------------+
+	              |  see its STATE     |                                      |
+	              |  DIAGRAM)          |                                      v
+	              +--------------------+                           +------------------+
+	                 |              |                              |      FATAL       |
+	   all tables OK,|              | some table                   +------------------+
+	   or dry run    |              | failed                       action: print
+	                 v              v                              "access2csv: <reason>"
+	             return 0       return 1                           to STDERR; return 3
 
 Whichever way the run ends, a copy made of standard input is deleted.
 

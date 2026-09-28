@@ -1,7 +1,11 @@
 # Generated from Makefile.PL using makefilepl2cpanfile
 
+requires 'perl', '5.014';
+
 requires 'Carp';
+requires 'Config';
 requires 'Encode';
+requires 'Fcntl';
 requires 'File::Path';
 requires 'File::Spec';
 requires 'File::Temp';
@@ -23,13 +27,20 @@ requires 'parent';
 
 on 'test' => sub {
 	requires 'Capture::Tiny';
+	requires 'Cwd';
 	requires 'Errno';
+	requires 'Exporter';
+	requires 'File::Copy';
+	requires 'FindBin';
 	requires 'POSIX';
+	requires 'Storable';
+	requires 'Time::HiRes';
 	requires 'Test::Memory::Cycle';
 	requires 'Test::Mockingbird', '0.13';   # mock_scoped multi-method form
 	requires 'Test::Most';
 	requires 'Test::Returns';
 	requires 'Test::Without::Module';
+	recommends 'IO::Pty';   # "standard input is a terminal" tests
 };
 
 on 'develop' => sub {

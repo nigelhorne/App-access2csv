@@ -9,6 +9,10 @@ WriteMakefile(
 	ABSTRACT_FROM => 'lib/App/Access2CSV.pm',
 	AUTHOR       => 'Nigel Horne <njh@nigelhorne.com>',
 
+	# 5.14: the // operator, local $@ that survives croak, s///r and
+	# "package NAME { }" (the last two in the tests)
+	MIN_PERL_VERSION => '5.014',
+
 	EXE_FILES => [
 		'bin/access2csv',
 	],
@@ -16,7 +20,9 @@ WriteMakefile(
 	PREREQ_PM => {
 		'autodie'      => 0,
 		'Carp'         => 0,
+		'Config'       => 0,
 		'Encode'       => 0,
+		'Fcntl'        => 0,
 		'File::Path'   => 0,
 		'File::Spec'   => 0,
 		'File::Temp'   => 0,
@@ -38,8 +44,14 @@ WriteMakefile(
 
 	TEST_REQUIRES => {
 		'Capture::Tiny' => 0,
+		'Cwd'          => 0,
 		'Errno'        => 0,
+		'Exporter'     => 0,
+		'File::Copy'   => 0,
+		'FindBin'      => 0,
 		'POSIX'        => 0,
+		'Storable'     => 0,
+		'Time::HiRes'  => 0,
 		'Test::Memory::Cycle' => 0,
 		'Test::Mockingbird' => 0.13,	# mock_scoped multi-method form
 		'Test::Most'   => 0,
@@ -48,4 +60,25 @@ WriteMakefile(
 	},
 
 	LICENSE => 'gpl_2',
+
+	META_MERGE => {
+		'meta-spec' => { version => 2 },
+		resources => {
+			repository => {
+				type => 'git',
+				url  => 'git://github.com/nigelhorne/App-access2csv.git',
+				web  => 'https://github.com/nigelhorne/App-access2csv',
+			},
+			bugtracker => {
+				web => 'https://github.com/nigelhorne/App-access2csv/issues',
+			},
+		},
+		prereqs => {
+			test => {
+				# Only for the "standard input is a terminal" tests,
+				# which are skipped without it
+				recommends => { 'IO::Pty' => 0 },
+			},
+		},
+	},
 );

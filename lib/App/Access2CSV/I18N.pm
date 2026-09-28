@@ -17,7 +17,7 @@ use Return::Set qw(set_return);
 use Sub::Private;
 use Sub::Protected;
 
-our $VERSION = '0.001';
+our $VERSION = '0.001.0';
 
 # The wrappers installed by Sub::Private/Sub::Protected add stack frames;
 # listing them here stops Carp from blaming the wrapper for our errors
@@ -55,6 +55,31 @@ Readonly::Scalar my $UNPRINTABLE_BYTES_RE => qr/
 	| \xE2 \x81 [\xA6-\xA9]          # isolates
 /x;
 
+# Coverage: Devel::Cover finds code through the symbol table, but in
+# enforce mode Sub::Private and Sub::Protected replace every private and
+# protected sub there with a wrapper (at CHECK time), so the real subs
+# would never appear in coverage reports.  Only when Devel::Cover is
+# loaded, give each sub of this distribution a second name, in a package
+# nothing calls, before the wrapping happens.  CHECK blocks run
+# last-defined first, so this one runs before the attribute handlers'.
+Readonly::Array my @OWN_PACKAGES => qw(App::Access2CSV App::Access2CSV::Exporter App::Access2CSV::I18N);
+Readonly::Scalar my $UNWRAPPED => 'App::Access2CSV::_Unwrapped';
+
+CHECK {
+	if($INC{'Devel/Cover.pm'}) {
+		require B;
+		no strict 'refs';
+		foreach my $package (@OWN_PACKAGES) {
+			foreach my $name (keys %{"${package}::"}) {
+				my $code = *{"${package}::$name"}{CODE} or next;
+				# Only subs written in this package, not imported ones
+				next unless B::svref_2object($code)->GV->STASH->NAME eq $package;
+				*{"${UNWRAPPED}::${package}::$name"} = $code;
+			}
+		}
+	}
+}
+
 # Signals that mean "stop now": Ctrl-C is INT, Ctrl-\ is QUIT; TERM and
 # HUP come from kill, service managers and closed terminals
 Readonly::Array my @INTERRUPT_SIGNALS => qw(INT QUIT TERM HUP);
@@ -84,6 +109,7 @@ our %MESSAGES = (
 		column_output      => 'OUTPUT FILE',
 		column_rows        => 'ROWS',
 		column_table       => 'TABLE',
+		count_unreadable   => 'mdb-count printed no number: "%s"',
 		count_failed       => 'Cannot count the rows of %s: %s',
 		database_not_file  => 'Database %s is not a regular file',
 		database_not_found => 'Cannot read database %s: %s',
@@ -99,6 +125,7 @@ our %MESSAGES = (
 		invalid_name       => 'the name contains a NUL byte',
 		interrupted_reading => 'Interrupted by SIG%s while reading the database from standard input',
 		interrupted        => 'Interrupted by SIG%s: stopped, and the table being exported was discarded',
+		invalid_setting    => 'Invalid setting: %s',
 		invalid_utf8       => 'Table %s, line %d: output of mdb-export is not valid UTF-8',
 		log_failed         => 'Cannot write to the log: %s',
 		log_is_symlink     => 'it is a symbolic link',
@@ -122,6 +149,7 @@ our %MESSAGES = (
 		stdin_empty        => 'Standard input is empty: no database was piped in',
 		stdin_is_terminal  => 'Standard input is a terminal: pipe the database in, or give its file name',
 		stdin_read_failed  => 'Cannot read standard input: %s',
+		version            => 'access2csv version %s',
 		unknown_message    => 'Unknown message key: %s',
 		unknown_tables     => {
 			one   => 'Table not found in database: %s',
@@ -140,7 +168,7 @@ App::Access2CSV::I18N - Message catalog and translated error messages for App::A
 
 =head1 VERSION
 
-Version 0.001
+Version 0.001.0
 
 =head1 SYNOPSIS
 
@@ -703,7 +731,11 @@ Nigel Horne, C<< <njh at nigelhorne.com> >>
 
 =head1 LICENSE AND COPYRIGHT
 
-This program is released under the same terms as Perl itself.
+Copyright 2026 Nigel Horne.
+
+Usage is subject to the GPL2 licence terms.
+If you use it,
+please let me know.
 
 =head1 FORMAL SPECIFICATION
 

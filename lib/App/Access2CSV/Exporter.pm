@@ -99,6 +99,9 @@ Readonly::Scalar my $END_OF_OPTIONS => '--';
 # Temporary files are hidden and live next to the target for atomic rename
 Readonly::Scalar my $TEMP_TEMPLATE => '.access2csv-XXXXXX';
 
+# How much of an unreadable mdb-count answer to quote in the warning
+Readonly::Scalar my $COUNT_SHOWN => 40;
+
 # Shown in the dry run's ROWS column when a table could not be counted
 Readonly::Scalar my $UNKNOWN_COUNT => '?';
 
@@ -409,19 +412,21 @@ Valid and invalid values (tested in F<t/domain.t>):
 
 =head3 MESSAGES
 
-These messages come from L<Params::Validate::Strict>.  They are fatal and
-are not translated.
+All are fatal, and read "Invalid setting: REASON".  The REASON part
+comes from L<Params::Validate::Strict> and is not translated; for example:
 
 	+--------------------------------------+------------------------------+-----------------------------+
 	| Message                              | Meaning                      | What to do                  |
 	+--------------------------------------+------------------------------+-----------------------------+
-	| Unknown parameter 'X'                | X is not a known setting     | Remove X, or fix its        |
-	|                                      |                              | spelling                    |
-	| Parameter 'encoding' (X) must be one | This encoding is not         | Use utf8, utf8-bom or       |
-	|  of utf8, utf8-bom, cp1252           | supported                    | cp1252                      |
-	| Parameter 'logger' must be an object | logger is not an object      | Give a logger object        |
-	| Parameter 'tables' must be ...       | tables is not an array       | Give an array reference     |
-	|                                      | reference                    |                             |
+	| Invalid setting: Unknown parameter   | X is not a known setting     | Remove X, or fix its        |
+	|  'X'                                 |                              | spelling                    |
+	| Invalid setting: Parameter           | This encoding is not         | Use utf8, utf8-bom or       |
+	|  'encoding' (X) must be one of utf8, | supported                    | cp1252                      |
+	|  utf8-bom, cp1252                    |                              |                             |
+	| Invalid setting: Parameter 'logger'  | logger is not an object      | Give a logger object        |
+	|  must be an object                   |                              |                             |
+	| Invalid setting: Parameter 'tables'  | tables is not an array       | Give an array reference     |
+	|  must be ...                         | reference                    |                             |
 	+--------------------------------------+------------------------------+-----------------------------+
 
 =cut
@@ -436,7 +441,10 @@ sub new {
 	my $args = get_params(undef, \@_) || {};
 	my %given = map { $_ => $args->{$_} } grep { defined $args->{$_} } keys %{$args};
 
-	my $params = validate_strict(schema => { %NEW_SCHEMA }, input => \%given);
+	# A bad setting is reported in plain words ("Invalid setting: ..."),
+	# not with Params::Validate::Strict's internal prefix and location
+	my $params = eval { validate_strict(schema => { %NEW_SCHEMA }, input => \%given) }
+		or $class->_croak_i18n('invalid_setting', { params => [_validation_reason($@)] });
 
 	# Copy the table list so later changes by the caller cannot affect us
 	$params->{tables} = [ @{ $params->{tables} } ] if $params->{tables};
@@ -609,6 +617,8 @@ only that table fails; C<run> warns, logs, and carries on.
 	|                                         | a file is in the way)        |                               |
 	| Cannot count the rows of T: E (warning) | mdb-count failed for table T | The table is still exported   |
 	|                                         | (only with show_counts)      | (dry run: count shown as "?") |
+	|  ... mdb-count printed no number: "X"   | mdb-count's answer was not   | As above; X shows what it     |
+	|                                         | just a number                | printed                       |
 	| Tables not found in database: T         | Names in tables are not in   | Check spelling and case       |
 	|  (warning)                              | the database                 |                               |
 	| mdb-count not found in PATH; row counts | show_counts is on, but       | Install mdb-count, or turn    |
@@ -1052,10 +1062,13 @@ sub _count_rows :Private {
 	my $stdout = '';
 	$self->_run_program($MDB_COUNT, [$END_OF_OPTIONS, $database, $table], \$stdout);
 
-	# mdb-count prints just the number, but be tolerant of whitespace and
-	# of no output at all
-	my ($rows) = ($stdout // '') =~ /(\d+)/;
-	return $rows || 0;
+	# mdb-count prints just the number (perhaps with spaces around it).
+	# Anything else - nothing, "-5", an error text - is not a count, and
+	# must not quietly become 0: it is reported (as a warning, by
+	# _try_count_rows)
+	my ($rows) = ($stdout // '') =~ /\A\s*(\d+)\s*\z/;
+	defined($rows) or $self->_croak_i18n('count_unreadable', { params => [$self->_printable(substr($stdout // '', 0, $COUNT_SHOWN))] });
+	return $rows;
 }
 
 # _try_count_rows
@@ -1100,7 +1113,9 @@ sub _run_program :Private {
 	# Start the program in a clean environment (as perlsec asks, and as
 	# taint mode requires): PATH keeps only absolute folders, and variables
 	# that can change how a program is started are removed
-	local $ENV{PATH} = join(':', map { _untaint($_) } grep { length && File::Spec->file_name_is_absolute($_) } split /:/, $ENV{PATH} // '');
+	# (File::Spec->path and path_sep, not ":": Windows separates PATH with
+	# ";" and its paths contain ":", as in C:\\)
+	local $ENV{PATH} = join($Config{path_sep}, map { _untaint($_) } grep { length && File::Spec->file_name_is_absolute($_) } File::Spec->path());
 	local @ENV{@UNSAFE_ENV};
 	delete @ENV{@UNSAFE_ENV};
 
@@ -1262,6 +1277,26 @@ sub _log :Private {
 	return $self;
 }
 
+# _validation_reason
+# Purpose:        Reduce a Params::Validate::Strict error to its meaning,
+#                 e.g. "Parameter 'encoding' (latin1) must be one of utf8,
+#                 utf8-bom, cp1252", dropping the module's own prefix
+#                 ("Params::Validate::Strict line N: validate_strict: ")
+#                 and the Perl location it appends.
+# Entry Criteria: $error is the exception from validate_strict.
+# Exit Status:    Returns a one-line string.
+# Side Effects:   None.  A plain function, not a method.
+sub _validation_reason :Private {
+	my $error = shift;
+
+	my $reason = "$error";
+	$reason =~ s/\AParams::Validate::Strict line \d+: //;
+	$reason =~ s/\Avalidate_strict: //;
+	$reason =~ s/ at \S+ line \d+\.?\n?\z//;
+	chomp $reason;
+	return $reason;
+}
+
 # _untaint
 # Purpose:        Mark a value that has already been validated as safe for
 #                 taint mode.
@@ -1379,7 +1414,11 @@ Nigel Horne, C<< <njh at nigelhorne.com> >>
 
 =head1 LICENSE AND COPYRIGHT
 
-This program is released under the same terms as Perl itself.
+Copyright 2026 Nigel Horne.
+
+Usage is subject to the GPL2 licence terms.
+If you use it,
+please let me know.
 
 =head1 FORMAL SPECIFICATION
 

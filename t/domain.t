@@ -505,8 +505,8 @@ subtest 'argv --encoding: valid names | invalid' => sub {
 		is($status, $CONFIG{exit_ok}, "valid: $value");
 	}
 	my ($status, undef, $stderr) = cli('--no-log', '--encoding', 'latin1', $db);
-	is($status, $CONFIG{exit_fatal}, 'invalid: latin1');
-	like($stderr, qr/\Aaccess2csv: .*Parameter 'encoding' \(latin1\) must be one of utf8, utf8-bom, cp1252/, 'message');
+	is($status, $CONFIG{exit_usage}, 'invalid: latin1 (usage error)');
+	like($stderr, qr/^Invalid setting: Parameter 'encoding' \(latin1\) must be one of utf8, utf8-bom, cp1252$/m, 'message');
 };
 
 subtest 'argv --table: 0 | 1 | many | non-ASCII' => sub {

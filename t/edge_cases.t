@@ -609,8 +609,8 @@ subtest 'app: hostile command lines' => sub {
 	like($stderr, qr/Standard input is empty/, '... which is empty here');
 
 	($status, undef, $stderr) = cli('--no-log', '--output-dir', '', $db);
-	is($status, $CONFIG{exit_fatal}, 'empty --output-dir is refused');
-	like($stderr, qr/\Aaccess2csv: .*output_dir/, 'says which setting');
+	is($status, $CONFIG{exit_usage}, 'empty --output-dir is refused (usage error)');
+	like($stderr, qr/^Invalid setting: .*'output_dir'/m, 'says which setting');
 
 	($status) = cli('--no-log', '--dry-run', ('--table', 'Orders') x $CONFIG{many_tables}, $db);
 	is($status, $CONFIG{exit_ok}, 'a thousand repeated --table options');

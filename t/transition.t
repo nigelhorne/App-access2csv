@@ -217,15 +217,16 @@ subtest 'State: EXPORTING -> Trigger: fatal error -> State: FATAL -> return 3' =
 	restore_all();
 };
 
-subtest 'State: CHECKING SETTINGS -> Trigger: invalid value -> State: FATAL (nothing created)' => sub {
-	# Settings are checked before anything with a side effect: no copy of
-	# standard input is made and no log file is created
+subtest 'State: CHECKING SETTINGS -> Trigger: invalid value -> State: USAGE ERROR -> return 2 (nothing created)' => sub {
+	# A bad option value is a command-line mistake.  Settings are checked
+	# before anything with a side effect: no copy of standard input is
+	# made and no log file is created
 	my ($dir, $db) = new_database('T');
 	trace_app();
 	my ($status, undef, $stderr) = cli('--log', "$dir/x.log", '--encoding', 'latin1', $db);
-	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{fatal}], 'path: straight to FATAL');
-	is($status, $CONFIG{exit_fatal}, 'return 3');
-	like($stderr, qr/\Aaccess2csv: .*'encoding'/, 'says why');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{usage}], 'path: CHECKING SETTINGS -> USAGE ERROR');
+	is($status, $CONFIG{exit_usage}, 'return 2');
+	like($stderr, qr/^Invalid setting: Parameter 'encoding' \(latin1\)/m, 'says why');
 	ok(!-e "$dir/x.log", 'the log file was never created');
 	restore_all();
 };

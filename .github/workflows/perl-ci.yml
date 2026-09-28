@@ -141,6 +141,17 @@ jobs:
 
           exit(@failed ? 1 : 0);
 
+      # Real mdbtools and real Access databases for t/real-mdbtools.t.  The
+      # databases have no clear licence, so they are downloaded here at run
+      # time (as the mdbtestdata project intends), never shipped in the
+      # distribution.
+      - name: Install mdbtools and test databases
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y mdbtools
+          git clone --depth 1 https://github.com/mdbtools/mdbtestdata "$RUNNER_TEMP/mdbtestdata"
+          echo "ACCESS2CSV_TEST_DATA=$RUNNER_TEMP/mdbtestdata/data" >> "$GITHUB_ENV"
+
       - name: Run tests
         if: runner.os != 'Windows'
         shell: bash

@@ -739,8 +739,11 @@ subtest 'Exporter::_count_rows reads the number from mdb-count' => sub {
 	returns_ok($rows, { type => 'integer', min => 0 }, 'an integer');
 	is_deeply(\@calls, [[$CONFIG{mdb_count}, ['--', $CONFIG{database}, $CONFIG{table}]]], 'mdb-count arguments, options ended by --');
 
+	# Anything that is not just a number is reported, never taken as 0
 	$output = '';
-	is(new_exporter()->_count_rows($CONFIG{database}, $CONFIG{table}), 0, 'no output: 0');
+	throws_ok { new_exporter()->_count_rows($CONFIG{database}, $CONFIG{table}) } qr/\Amdb-count printed no number: "" at /, 'no output: reported';
+	$output = "count: 12 rows\n";
+	throws_ok { new_exporter()->_count_rows($CONFIG{database}, $CONFIG{table}) } qr/\Amdb-count printed no number: "count: 12 rows\\x0A" at /, 'extra text: reported';
 };
 
 # Replaces run3 with a double that records its arguments, writes to
@@ -912,8 +915,13 @@ subtest 'App::run turns an exception into the fatal status' => sub {
 		"$CONFIG{app}::_parse_options" => sub { return },
 		"$CONFIG{app}::_make_logger"   => sub { return },
 		"$CONFIG{app}::_report_fatal"  => sub { shift; push @reported, [@_]; $CONFIG{exit_fatal} },
-		"$CONFIG{exporter}::new"       => sub { die "exploded\n" },
+		# The settings are fine (new succeeds); the export itself fails
+		"$CONFIG{exporter}::new"       => sub { bless {}, 'Local::Exploding' },
 	);
+	{
+		package Local::Exploding;
+		sub run { die "exploded\n" }
+	}
 
 	is($CONFIG{app}->run($CONFIG{database}), $CONFIG{exit_fatal}, 'fatal status');
 	is_deeply(\@reported, [["exploded\n", 0]], 'error and verbose flag reported');

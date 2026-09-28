@@ -157,17 +157,21 @@ For more control, use [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3
 
     Print this whole manual, then stop.
 
+- **--version**
+
+    Print the version ("access2csv version 0.001.0"), then stop.
+
 ## Exit Status
 
 The program ends with one of these numbers.  Scripts can test it.
 
 ```
     0  Every selected table was exported.  Also used for --dry-run,
-       --help and --man.
+       --help, --man and --version.
     1  At least one table was not exported.  The other tables were.
-    2  The command line was wrong, for example an unknown option or no
-       database name, or "-" was given while standard input is a
-       terminal.
+    2  The command line was wrong, for example an unknown option, an
+       invalid value (--encoding latin1), no database name, or "-" while
+       standard input is a terminal.  Nothing has been done.
     3  A fatal error happened before any table was exported, for example
        the database does not exist or mdbtools is not installed.
 ```
@@ -377,7 +381,7 @@ Valid and invalid values (tested in `t/domain.t`):
     database names  exactly 1; 0 or 2 or more give exit status 2.
                     "-" means standard input (exit 2 if it is a
                     terminal, 3 if it is empty or unreadable)
-    --encoding      utf8, utf8-bom or cp1252; anything else gives exit 3
+    --encoding      utf8, utf8-bom or cp1252; anything else gives exit 2
     --table         0 times (all tables), once, or many times; names
                     may be non-ASCII
     --log           a file name; '' means no log, like --no-log
@@ -403,6 +407,9 @@ Valid and invalid values (tested in `t/domain.t`):
     |                                     | program                       |                              |
     | Option X requires an argument       | An option such as --log was   | Give a value after it        |
     |  (exit 2)                           | the last word                 |                              |
+    | Invalid setting: REASON (exit 2)    | An option value is not        | Use a documented value (see  |
+    |                                     | allowed, e.g. --encoding      | OPTIONS)                     |
+    |                                     | latin1; REASON says which     |                              |
     | Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
     |                                     | it was empty, or more than    |                              |
     |                                     | one was given                 |                              |
@@ -449,13 +456,35 @@ Valid and invalid values (tested in `t/domain.t`):
 bugs, and their CSV style (quoting, date format, binary columns), are
 passed on unchanged.  No maintained CPAN module can read `.accdb` files,
 so there is no pure-Perl alternative today.
-- Messages that come from [Getopt::Long](https://metacpan.org/pod/Getopt%3A%3ALong), [Params::Validate::Strict](https://metacpan.org/pod/Params%3A%3AValidate%3A%3AStrict)
-and [autodie](https://metacpan.org/pod/autodie) are not translated.
+- The reason inside "Invalid setting: ..." comes from
+[Params::Validate::Strict](https://metacpan.org/pod/Params%3A%3AValidate%3A%3AStrict), and messages from [Getopt::Long](https://metacpan.org/pod/Getopt%3A%3ALong) and
+[autodie](https://metacpan.org/pod/autodie) come from those modules; none of them is translated.
+- **Windows.**  The code handles Windows (its `PATH` separator, the
+absence of Unix permission bits and of signals), and the core export
+tests (`t/exporter.t`, `t/app.t`) run there.  Most other test files
+use Unix-only facilities (signals, symbolic links, `/proc`, taint-mode
+child processes, terminals) and are skipped on Windows, so those
+features are tested on Unix only.
 - The default log file is created in the current folder, which may
 surprise users.
 - Settings come from the command line only.  `%DEFAULTS` is laid out
 so that [Object::Configure](https://metacpan.org/pod/Object%3A%3AConfigure) could read them from a configuration file,
 but this is not connected yet.
+
+## Testing With Real Databases
+
+Most tests use stand-in mdbtools programs.  `t/real-mdbtools.t` checks
+the program against the real mdbtools and real Access files: every CSV
+must be byte for byte what `mdb-export` prints.  No database ships with
+this distribution; point `ACCESS2CSV_TEST_DATA` at a folder of
+`.mdb`/`.accdb` files, for example the mdbtools project's test data:
+
+```
+    git clone --depth 1 https://github.com/mdbtools/mdbtestdata
+    ACCESS2CSV_TEST_DATA=mdbtestdata/data prove -l t/real-mdbtools.t
+```
+
+The continuous-integration workflow does this on Linux.
 
 ## See Also
 
@@ -482,7 +511,7 @@ You do not need to read this section to use the program.
     │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
     │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧ head rest = "-" ∧
     │   isTerminal(stdin) ⇒ status! = 2
-    │ ¬ valid(opts) ⇒ status! = 3 ∧ files' = files   -- checked first: no copy, no log
+    │ ¬ valid(opts) ⇒ status! = 2 ∧ files' = files   -- checked first: no copy, no log
     │ db = (if head rest = "-" then copy(stdin) else head rest)
     │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧
     │   ¬ (head rest = "-" ∧ isTerminal(stdin)) ⇒
@@ -521,44 +550,47 @@ happens on the way.
                   |    PARSING    |  read options into the settings
                   +---------------+
                    |      |      |
-     bad option,   |      |      | --help / --man
-     missing value,|      |      | action: print documentation to STDOUT
+     bad option,   |      |      | --help / --man / --version
+     missing value,|      |      | action: print it to STDOUT
      not exactly   |      |      v
      one database, |      |   +--------+
      or "-" while  |      |   |  HELP  |---> return 0
      standard input|      |   +--------+
      is a terminal |      |
-     action: print |      | options parsed, one database
-     usage to      |      v
-     STDERR        |   +--------------------+  invalid value, e.g.
-                   |   | CHECKING SETTINGS  |  --encoding latin1 (croak)
-                   |   +--------------------+-----------------------+
-                   v             | valid                             |
-          +-------------+        v                                   |
-          | USAGE ERROR |  +--------------------+  empty, unreadable, |
-          +-------------+  |   READING STDIN    |  or interrupted     |
-              |            | (only for "-")     |  (croak)            |
-     return 2 <           +--------------------+---------------------+
-                            | action: copy standard input to a        |
-                            |   private temporary file                |
-                            v                                         |
-                  +--------------------+  log cannot be opened        |
-                  |    OPENING LOG     |  (croak)                     |
-                  | (not with --no-log)|------------------------------+
-                  +--------------------+                              |
-                            | log is writable                         |
-                            v                                         |
-                  +--------------------+                              |
-                  | EXPORTING          |  fatal error (croak)         |
-                  | (Exporter->run,    |------------------------------+
-                  |  see its STATE     |                              |
-                  |  DIAGRAM)          |                              v
-                  +--------------------+                   +------------------+
-                     |              |                      |      FATAL       |
-       all tables OK,|              | some table           +------------------+
-       or dry run    |              | failed               action: print
-                     v              v                      "access2csv: <reason>"
-                 return 0       return 1                   to STDERR; return 3
+                   |      | options parsed, one database
+                   |      v
+                   |   +--------------------+
+                   |   | CHECKING SETTINGS  |
+                   |   +--------------------+
+                   |      |               |
+                   |<-----+ invalid value | valid
+                   |        (e.g.         |
+                   |        --encoding    |
+     action: print |        latin1)       v
+     the reason    |              +--------------------+  empty, unreadable,
+     and usage to  |              |   READING STDIN    |  or interrupted
+     STDERR        v              | (only for "-")     |  (croak) ------------+
+          +-------------+         +--------------------+                      |
+          | USAGE ERROR |           | action: copy standard input to a        |
+          +-------------+           |   private temporary file                |
+              |                     v                                         |
+     return 2 <           +--------------------+  log cannot be opened        |
+                          |    OPENING LOG     |  (croak)                     |
+                          | (not with --no-log)|------------------------------+
+                          +--------------------+                              |
+                            | log is writable                                 |
+                            v                                                 |
+                  +--------------------+                                      |
+                  | EXPORTING          |  fatal error (croak)                 |
+                  | (Exporter->run,    |--------------------------------------+
+                  |  see its STATE     |                                      |
+                  |  DIAGRAM)          |                                      v
+                  +--------------------+                           +------------------+
+                     |              |                              |      FATAL       |
+       all tables OK,|              | some table                   +------------------+
+       or dry run    |              | failed                       action: print
+                     v              v                              "access2csv: <reason>"
+                 return 0       return 1                           to STDERR; return 3
 ```
 
 Whichever way the run ends, a copy made of standard input is deleted.

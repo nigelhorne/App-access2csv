@@ -8,10 +8,6 @@ use warnings;
 
 use Test::Most;
 
-BEGIN {
-	plan(skip_all => 'fake mdbtools are shell-free Perl scripts; needs a Unix-like OS') if $^O eq 'MSWin32';
-}
-
 use Capture::Tiny qw(capture);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -75,8 +71,9 @@ subtest 'fatal errors' => sub {
 	like($stderr, qr/ at \S+ line \d+/, 'file/line with --verbose');
 
 	($status, undef, $stderr) = cli('--no-log', '--encoding', 'ebcdic', $db);
-	is($status, 3, 'bad encoding');
-	like($stderr, qr/encoding/, 'says why');
+	is($status, 2, 'bad encoding: a command-line mistake (usage error)');
+	like($stderr, qr/^Invalid setting: Parameter 'encoding' \(ebcdic\) must be one of utf8, utf8-bom, cp1252$/m, 'says why, in plain words');
+	unlike($stderr, qr/Params::Validate::Strict|validate_strict| line \d+/, 'no module internals or Perl location');
 
 	($status, undef, $stderr) = cli('--log', File::Spec->catfile($dir, 'no', 'such', 'dir.log'), $db);
 	is($status, 3, 'log cannot be opened');

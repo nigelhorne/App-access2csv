@@ -8,10 +8,6 @@ use warnings;
 
 use Test::Most;
 
-BEGIN {
-	plan(skip_all => 'fake mdbtools are shell-free Perl scripts; needs a Unix-like OS') if $^O eq 'MSWin32';
-}
-
 use Capture::Tiny qw(capture);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -92,6 +88,7 @@ subtest 'exports user tables and skips system tables' => sub {
 };
 
 subtest 'new files get normal permissions, not File::Temp 0600' => sub {
+	plan(skip_all => 'Windows has no Unix permission bits') if $^O eq 'MSWin32';
 	my $old = umask(022);
 	my (undef, $out) = export(['Orders']);
 	umask($old);
@@ -131,13 +128,19 @@ subtest 'cp1252 reports invalid UTF-8 from mdb-export' => sub {
 };
 
 subtest 'mdb-export failures are per table' => sub {
-	my ($status, $out, undef, $stderr, $logger) = export([qw(Broken Killed Orders)]);
+	# "Killed" kills itself with a signal, which only Unix has
+	my @tables = $^O eq 'MSWin32' ? qw(Broken Orders) : qw(Broken Killed Orders);
+	my ($status, $out, undef, $stderr, $logger) = export(\@tables);
 	is($status, 1, 'failure status');
 	like($stderr, qr/FAILED: Broken: mdb-export failed with exit status 1: corrupt table/, 'exit status');
-	like($stderr, qr/FAILED: Killed: mdb-export was killed by signal \d+/, 'signal');
+	SKIP: {
+		skip('Windows has no signals', 1) if $^O eq 'MSWin32';
+		like($stderr, qr/FAILED: Killed: mdb-export was killed by signal \d+/, 'signal');
+	}
 	ok(!-e "$out/Broken.csv", 'no partial file');
 	ok(-e "$out/Orders.csv", 'good table exported');
-	like($logger->{lines}[-1], qr/Processed 3 tables, 2 failed/, 'summary');
+	my ($total, $failed) = (scalar(@tables), scalar(@tables) - 1);
+	like($logger->{lines}[-1], qr/Processed $total tables, $failed failed/, 'summary');
 };
 
 subtest 'existing files' => sub {
@@ -229,6 +232,7 @@ subtest 'fatal errors' => sub {
 
 	SKIP: {
 		skip('root can read anything', 1) if $> == 0;
+		skip('chmod cannot make a file unreadable on Windows', 1) if $^O eq 'MSWin32';
 		my $db = make_database($dir, 'A');
 		chmod 0, $db;
 		throws_ok { $e->run($db) } qr/is not readable/, 'unreadable';
@@ -247,6 +251,7 @@ subtest 'fatal errors' => sub {
 subtest 'output directory cannot be created' => sub {
 	SKIP: {
 		skip('root can write anywhere', 2) if $> == 0;
+		skip('Windows has no Unix permission bits', 2) if $^O eq 'MSWin32';
 		my $dir = tempdir(CLEANUP => 1);
 		my $db = make_database($dir, 'A');
 		my $blocker = File::Spec->catfile($dir, 'file');

@@ -8,7 +8,7 @@ package FakeMDB;
 # fake mdb-tables prints it back.  A first line of "FAIL" makes
 # mdb-tables fail.  mdb-export's behaviour depends on the table name:
 #   Broken   - exits 1 with "corrupt table" on stderr
-#   Killed   - kills itself with SIGTERM
+#   Killed   - kills itself with SIGTERM (Unix only: Windows has no signals)
 #   Unicode  - UTF-8 text that cp1252 can represent ("Cafe" with e-acute, Euro)
 #   Japanese - UTF-8 text that cp1252 cannot represent
 #   Latin1   - bytes that are not valid UTF-8
@@ -90,12 +90,20 @@ sub install_fake_mdbtools {
 
 	my $dir = tempdir(CLEANUP => 1);
 	foreach my $program (@programs) {
-		my $path = File::Spec->catfile($dir, $program);
+		# On Windows the script is a .pl file, started by a .cmd shim of the
+		# same name (found through PATHEXT), because Windows ignores "#!"
+		my $path = File::Spec->catfile($dir, $^O eq 'MSWin32' ? "$program.pl" : $program);
 		open my $fh, '>', $path;
 		my ($known, $body) = @{ $SCRIPTS{$program} };
 		print {$fh} "#!$^X\nuse strict;\nuse warnings;\nmy \@KNOWN = qw(@{$known});\n$PROLOGUE$body";
 		close $fh;
 		chmod 0755, $path;
+
+		if($^O eq 'MSWin32') {
+			open my $shim, '>', File::Spec->catfile($dir, "$program.cmd");
+			print {$shim} qq{\@"$^X" "%~dp0$program.pl" %*\r\n};
+			close $shim;
+		}
 	}
 	return $dir;
 }

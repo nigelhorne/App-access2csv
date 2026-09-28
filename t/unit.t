@@ -120,6 +120,9 @@ my %LEDGER = map { $_ => 1 } (
 	'app: Option requires an argument',
 	'app: Missing database filename',
 	'app: Cannot open log file',
+	'app: Invalid setting',
+	'app: --version',
+	'run: mdb-count printed no number',
 	'app: no logger was created',
 	'app: it is a symbolic link',
 	'app: Standard input is empty',
@@ -851,6 +854,25 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	ticked('app: Interrupted while reading standard input');
 
 	{
+		# mdb-count answers, but not with a number: a warning, count "?"
+		my $guard = mdbtools_scenario(tables => ['T']);
+		my $scenario = \&App::Access2CSV::Exporter::run3;
+		my $odd = mock_scoped("$CONFIG{exporter}::run3" => sub {
+			return $scenario->(@_) unless $_[0][0] =~ /mdb-count\z/;
+			${ $_[2] } = "no idea\n";
+			${ $_[3] } = '';
+			$? = 0;
+			return 1;
+		});
+		my $out;
+		($status, $out, $stderr) = cli('--no-log', '--dry-run', '--show-counts', $db);
+		is($status, $CONFIG{exit_ok}, 'unreadable count: still 0');
+		like($stderr, qr/^Cannot count the rows of T: mdb-count printed no number: "no idea\\x0A" at /m, 'exact message');
+		like($out, qr/^T\s+\?\s+T\.csv$/m, 'count shown as "?"');
+	}
+	ticked('run: mdb-count printed no number');
+
+	{
 		my $lg = mock_scoped('Log::Abstraction::new' => sub { return });
 		($status, undef, $stderr) = cli('--log', File::Spec->catfile($dir, 'y.log'), $db);
 		is($status, $CONFIG{exit_fatal}, 'logger constructor returned nothing');
@@ -859,8 +881,15 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	}
 
 	($status, undef, $stderr) = cli('--no-log', '--encoding', 'ebcdic', $db);
-	is($status, $CONFIG{exit_fatal}, 'bad encoding is fatal');
-	like($stderr, qr/\Aaccess2csv: .*encoding/, 'says why');
+	is($status, $CONFIG{exit_usage}, 'bad encoding is a usage error');
+	like($stderr, qr/^Invalid setting: Parameter 'encoding' \(ebcdic\) must be one of utf8, utf8-bom, cp1252$/m, 'exact message');
+	ticked('app: Invalid setting');
+
+	my $version_out;
+	($status, $version_out) = cli('--version');
+	is($status, $CONFIG{exit_ok}, '--version: 0');
+	is($version_out, "access2csv version $App::Access2CSV::VERSION\n", '--version: exact text');
+	ticked('app: --version');
 };
 
 subtest 'app: does not change the caller\'s array or global state' => sub {

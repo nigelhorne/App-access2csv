@@ -153,7 +153,7 @@ my %PATHS = (
 	# _install_file
 	IF1 => 'renamed into place', IF2 => 'rename fails -> croak',
 	# _count_rows
-	CR1 => 'number', CR2 => 'no output -> 0', CR3 => 'no digits -> 0',
+	CR1 => 'number', CR2 => 'no output -> croak (not a silent 0)', CR3 => 'not a number -> croak (not a silent 0)',
 	# _run_program
 	RP1 => '$? -1 -> could not be run', RP2 => 'signal', RP3 => 'exit code', RP4 => 'success',
 	# _csv_filename
@@ -172,7 +172,7 @@ my %PATHS = (
 
 	# App::run
 	AR1 => 'option parsing decides', AR2 => 'export status returned', AR3 => 'exception -> fatal report',
-	AR4 => 'invalid settings -> fatal before standard input or the log is touched',
+	AR4 => 'invalid settings -> usage error, before standard input or the log is touched',
 	AR5 => '"-" -> standard input copied, the copy exported',
 	# _parse_options
 	PO1 => 'parse fails', PO2 => 'help', PO3 => 'wrong database count', PO4 => 'go ahead',
@@ -528,9 +528,9 @@ subtest '_count_rows paths' => sub {
 	$output = "$CONFIG{rows}\n";
 	is(exporter()->_count_rows('db', 'T'), $CONFIG{rows}, 'CR1'); took('CR1');
 	$output = undef;
-	is(exporter()->_count_rows('db', 'T'), 0, 'CR2'); took('CR2');
-	$output = 'none';
-	is(exporter()->_count_rows('db', 'T'), 0, 'CR3'); took('CR3');
+	throws_ok { exporter()->_count_rows('db', 'T') } qr/\Amdb-count printed no number: "" at /, 'CR2'; took('CR2');
+	$output = '-5';
+	throws_ok { exporter()->_count_rows('db', 'T') } qr/\Amdb-count printed no number: "-5" at /, 'CR3'; took('CR3');
 };
 
 subtest '_run_program paths' => sub {
@@ -653,7 +653,9 @@ subtest 'App::run paths' => sub {
 	%opened = ();
 	$read = 0;
 	$parse = { encoding => 'latin1' };
-	is($CONFIG{app}->run('-'), $CONFIG{exit_fatal}, 'AR4: fatal');
+	my $ar4;
+	capture { $ar4 = $CONFIG{app}->run('-') };
+	is($ar4, $CONFIG{exit_usage}, 'AR4: usage error');
 	ok(!$opened{log} && !$read, 'AR4: neither the log nor standard input touched'); took('AR4');
 
 	$parse = undef;
