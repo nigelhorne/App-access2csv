@@ -88,6 +88,7 @@ my %LEDGER = map { $_ => 1 } (
 	'run: returns 0',
 	'run: returns 1',
 	'run: Cannot read database',
+	'run: must be called on an object',
 	'run: Database is not a regular file',
 	'run: Database is not readable',
 	'run: Required program not found in PATH',
@@ -560,6 +561,9 @@ subtest 'run: fatal errors croak before writing anything' => sub {
 
 	throws_ok { $e->run($missing) } qr/\ACannot read database \Q$missing\E: \Q$OS{enoent}\E at /, 'missing database';
 	ticked('run: Cannot read database');
+
+	throws_ok { $CONFIG{exporter}->run($db) } qr/\Arun\(\) must be called on an object created by new\(\) at /, 'run on the class, not an object';
+	ticked('run: must be called on an object');
 
 	throws_ok { $e->run($dir) } qr/\ADatabase \Q$dir\E is not a regular file at /, 'folder';
 	ticked('run: Database is not a regular file');

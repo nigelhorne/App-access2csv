@@ -97,6 +97,7 @@ our %MESSAGES = (
 		log_open_failed    => 'Cannot open log file %s: %s',
 		logger_unavailable => 'no logger was created',
 		missing_database   => 'Missing database filename',
+		needs_object       => 'run() must be called on an object created by new()',
 		mkdir_failed       => 'Cannot create output directory %s: %s',
 		no_row_counter     => 'mdb-count not found in PATH; row counts are unavailable',
 		output_exists      => 'Output file already exists: %s (use --overwrite to replace it)',

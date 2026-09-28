@@ -502,6 +502,10 @@ sub run {
 		# Any croak from here on is a fatal error: report it, don't die
 		$status = eval {
 			my $logger = $class->_make_logger(\%opt);
+			# TODO: FSM Discrepancy - invalid option values (e.g. --encoding
+			# latin1) croak here, in Exporter->new, after OPENING LOG has
+			# already created the log file.  The diagram attributes fatal
+			# errors to "Exporter->run" only.
 			my $exporter = App::Access2CSV::Exporter->new(
 				map({ $_ => $opt{$_} } grep { $_ ne 'log' } keys %opt),
 				($logger ? (logger => $logger) : ()),

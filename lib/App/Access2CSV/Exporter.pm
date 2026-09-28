@@ -571,6 +571,9 @@ only that table fails; C<run> warns, logs, and carries on.
 	+-----------------------------------------+------------------------------+-------------------------------+
 	| Message                                 | Meaning                      | What to do                    |
 	+-----------------------------------------+------------------------------+-------------------------------+
+	| run() must be called on an object       | run was called on the class  | Call new() first, then run()  |
+	|  created by new() (fatal)               | or on something that is not  | on the object it returns      |
+	|                                         | an exporter                  |                               |
 	| Cannot read database F: E (fatal)       | F does not exist, or cannot  | Check the path                |
 	|                                         | be reached; E is the reason  |                               |
 	|                                         | from the operating system    |                               |
@@ -635,6 +638,11 @@ only that table fails; C<run> warns, logs, and carries on.
 sub run {
 	my $self = shift;
 
+	# State machine guard: run() is only a transition out of READY, which
+	# only new() can create.  Refuse anything else before doing any work.
+	# (Reported through the class: $self may not even be an object.)
+	blessed($self) && $self->isa(__PACKAGE__) or __PACKAGE__->_croak_i18n('needs_object');
+
 	# File tests, evals and child processes below would otherwise leave
 	# their marks in the caller's $@ and $!
 	local ($@, $!);
@@ -676,6 +684,10 @@ sub run {
 		return set_return($EXIT_OK, { %RUN_STATUS_SCHEMA });
 	}
 
+	# TODO: FSM Discrepancy - with no tables selected (e.g. tables => []),
+	# the output folder is still created and _export_all goes straight to
+	# SUMMARY ("Processed 0 tables").  The diagram has no PREPARING ->
+	# SUMMARY edge; it shows PREPARING -> EXPORTING only.
 	my $failed = $self->_make_output_dir()->_export_all($database, $tables);
 	return set_return($failed ? $EXIT_FAILURE : $EXIT_OK, { %RUN_STATUS_SCHEMA });
 }
@@ -918,6 +930,12 @@ sub _export_table :Protected {
 	$self->_install_file($tmp, $outfile);
 
 	# Row counts are optional extras, reported only if asked for
+	# TODO: FSM Discrepancy - the file has already been renamed into place
+	# (the diagram's "success" edge), but if mdb-count now fails, the
+	# exception makes _export_all report the table as FAILED and count it.
+	# The diagram has no edge from a written file to "failure", and its
+	# failure edge says the temporary file is deleted.  Either make a count
+	# failure a warning, or document this edge.
 	if($self->{show_counts}) {
 		my $rows = $self->_count_rows($database, $table);
 		$self->_log(info => 'exported_rows', { params => [$table, $outfile, $rows], count => $rows });
@@ -1131,6 +1149,9 @@ sub _dry_run :Private {
 
 	foreach my $table (@{$tables}) {
 		my @row = ($table);
+		# TODO: FSM Discrepancy - if mdb-count fails here the exception ends
+		# the run (DRY RUN -> FATAL).  The diagram shows DRY RUN only ever
+		# returning 0.
 		push @row, $self->_count_rows($database, $table) if $counts;
 		# The table name comes from the database, so show it escaped (the
 		# file name is already safe; escaping it too costs nothing)
