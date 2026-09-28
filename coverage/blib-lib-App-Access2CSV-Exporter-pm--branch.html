@@ -20,58 +20,58 @@ https://pjcj.net
 <h1>Branch Coverage</h1>
 <table>
 <tr><td class="h" align="right">File:</td><td align="left">blib/lib/App/Access2CSV/Exporter.pm</td></tr>
-<tr><td class="h" align="right">Coverage:</td><td align="left" class="c0">13.1%</td></tr>
+<tr><td class="h" align="right">Coverage:</td><td align="left" class="c0">15.5%</td></tr>
 </table>
 <div><br/></div>
 <table>
 <tr><th>line</th><th>%</th><th colspan="2">coverage</th><th>branch</th></tr>
 <tr><td class="h"><a id="L437">437</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">if $params-&gt;{&#39;tables&#39;}</td></tr>
 <tr><td class="h"><a id="L441">441</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">if defined $params-&gt;{&#39;output_dir&#39;}</td></tr>
-<tr><td class="h"><a id="L649">649</a></td><td class="c0">50</td><td class="c3">T</td><td class="c0">F</td><td class="s">if (ref $input eq &quot;HASH&quot;)</td></tr>
-<tr><td class="h"><a id="L651">651</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">unless defined $input-&gt;{&#39;database&#39;}</td></tr>
-<tr><td class="h"><a id="L674">674</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">if ($self-&gt;{&#39;dry_run&#39;})</td></tr>
-<tr><td class="h"><a id="L680">680</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">$failed ? :</td></tr>
-<tr><td class="h"><a id="L693">693</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless (-e $database)</td></tr>
-<tr><td class="h"><a id="L696">696</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless -f _</td></tr>
-<tr><td class="h"><a id="L697">697</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless -r _</td></tr>
-<tr><td class="h"><a id="L713">713</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $programs{$program} = $self-&gt;_find_program($program)</td></tr>
-<tr><td class="h"><a id="L720">720</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;show_counts&#39;})</td></tr>
-<tr><td class="h"><a id="L721">721</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (my $path = $self-&gt;_find_program($MDB_COUNT)) { }</td></tr>
-<tr><td class="h"><a id="L744">744</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if defined $_</td></tr>
-<tr><td class="h"><a id="L747">747</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if defined $path</td></tr>
-<tr><td class="h"><a id="L748">748</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($path and $self-&gt;{&#39;verbose&#39;})</td></tr>
-<tr><td class="h"><a id="L787">787</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if length $_</td></tr>
-<tr><td class="h"><a id="L799">799</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">$table =~ /$SYSTEM_TABLE_RE/ ? :</td></tr>
-<tr><td class="h"><a id="L810">810</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $self-&gt;{&#39;tables&#39;}</td></tr>
-<tr><td class="h"><a id="L817">817</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (@missing)</td></tr>
-<tr><td class="h"><a id="L833">833</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if -d $dir</td></tr>
-<tr><td class="h"><a id="L838">838</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (@{$errors;} or not -d $dir)</td></tr>
-<tr><td class="h"><a id="L843">843</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">@{$errors;} ? :</td></tr>
+<tr><td class="h"><a id="L644">644</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">unless &amp;blessed($self) and $self-&gt;isa(__PACKAGE__)</td></tr>
+<tr><td class="h"><a id="L657">657</a></td><td class="c0">50</td><td class="c3">T</td><td class="c0">F</td><td class="s">if (ref $input eq &quot;HASH&quot;)</td></tr>
+<tr><td class="h"><a id="L659">659</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">unless defined $input-&gt;{&#39;database&#39;}</td></tr>
+<tr><td class="h"><a id="L682">682</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">if ($self-&gt;{&#39;dry_run&#39;})</td></tr>
+<tr><td class="h"><a id="L692">692</a></td><td class="c3">100</td><td class="c3">T</td><td class="c3">F</td><td class="s">$failed ? :</td></tr>
+<tr><td class="h"><a id="L705">705</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless (-e $database)</td></tr>
+<tr><td class="h"><a id="L708">708</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless -f _</td></tr>
+<tr><td class="h"><a id="L709">709</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless -r _</td></tr>
+<tr><td class="h"><a id="L725">725</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $programs{$program} = $self-&gt;_find_program($program)</td></tr>
+<tr><td class="h"><a id="L732">732</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;show_counts&#39;})</td></tr>
+<tr><td class="h"><a id="L733">733</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (my $path = $self-&gt;_find_program($MDB_COUNT)) { }</td></tr>
+<tr><td class="h"><a id="L756">756</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if defined $_</td></tr>
+<tr><td class="h"><a id="L759">759</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if defined $path</td></tr>
+<tr><td class="h"><a id="L760">760</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($path and $self-&gt;{&#39;verbose&#39;})</td></tr>
+<tr><td class="h"><a id="L799">799</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if length $_</td></tr>
+<tr><td class="h"><a id="L811">811</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">$table =~ /$SYSTEM_TABLE_RE/ ? :</td></tr>
+<tr><td class="h"><a id="L822">822</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $self-&gt;{&#39;tables&#39;}</td></tr>
+<tr><td class="h"><a id="L829">829</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (@missing)</td></tr>
+<tr><td class="h"><a id="L845">845</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if -d $dir</td></tr>
+<tr><td class="h"><a id="L850">850</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (@{$errors;} or not -d $dir)</td></tr>
+<tr><td class="h"><a id="L855">855</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">@{$errors;} ? :</td></tr>
 <tr><td class="h"></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">$mine ? :</td></tr>
-<tr><td class="h"><a id="L868">868</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;progress&#39;})</td></tr>
-<tr><td class="h"><a id="L873">873</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if eval {
+<tr><td class="h"><a id="L880">880</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;progress&#39;})</td></tr>
+<tr><td class="h"><a id="L885">885</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if eval {
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;do {
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$self-&gt;_export_table($database, $table);
 1
 }
 }</td></tr>
-<tr><td class="h"><a id="L899">899</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (not $self-&gt;{&#39;overwrite&#39;} and -e $outfile || -l $outfile)</td></tr>
-<tr><td class="h"><a id="L908">908</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;encoding&#39;} eq $ENC_CP1252) { }</td></tr>
-<tr><td class="h"><a id="L913">913</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if $self-&gt;{&#39;encoding&#39;} eq $ENC_UTF8_BOM</td></tr>
-<tr><td class="h"><a id="L914">914</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $tmp-&gt;flush</td></tr>
-<tr><td class="h"><a id="L921">921</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;show_counts&#39;}) { }</td></tr>
-<tr><td class="h"><a id="L954">954</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless defined $chars</td></tr>
-<tr><td class="h"><a id="L957">957</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless defined $bytes</td></tr>
-<tr><td class="h"><a id="L988">988</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $ok</td></tr>
-<tr><td class="h"><a id="L1030">1030</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if length $_</td></tr>
-<tr><td class="h"><a id="L1043">1043</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($status == -1)</td></tr>
-<tr><td class="h"><a id="L1046">1046</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($status &amp; 127)</td></tr>
-<tr><td class="h"><a id="L1049">1049</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($status)</td></tr>
-<tr><td class="h"><a id="L1079">1079</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (utf8::is_utf8($name)) { }</td></tr>
-<tr><td class="h"><a id="L1089">1089</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if $name =~ /$RESERVED_NAME_RE/</td></tr>
-<tr><td class="h"><a id="L1090">1090</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless length $name</td></tr>
-<tr><td class="h"><a id="L1100">1100</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (exists $$used{lc $file})</td></tr>
-<tr><td class="h"><a id="L1121">1121</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">$counts ? :</td></tr>
+<tr><td class="h"><a id="L911">911</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (not $self-&gt;{&#39;overwrite&#39;} and -e $outfile || -l $outfile)</td></tr>
+<tr><td class="h"><a id="L920">920</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;encoding&#39;} eq $ENC_CP1252) { }</td></tr>
+<tr><td class="h"><a id="L925">925</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if $self-&gt;{&#39;encoding&#39;} eq $ENC_UTF8_BOM</td></tr>
+<tr><td class="h"><a id="L926">926</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $tmp-&gt;flush</td></tr>
+<tr><td class="h"><a id="L939">939</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($self-&gt;{&#39;show_counts&#39;}) { }</td></tr>
+<tr><td class="h"><a id="L972">972</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless defined $chars</td></tr>
+<tr><td class="h"><a id="L975">975</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless defined $bytes</td></tr>
+<tr><td class="h"><a id="L1006">1006</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless $ok</td></tr>
+<tr><td class="h"><a id="L1048">1048</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if length $_</td></tr>
+<tr><td class="h"><a id="L1061">1061</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($status == -1)</td></tr>
+<tr><td class="h"><a id="L1064">1064</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($status &amp; 127)</td></tr>
+<tr><td class="h"><a id="L1067">1067</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if ($status)</td></tr>
+<tr><td class="h"><a id="L1097">1097</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (utf8::is_utf8($name)) { }</td></tr>
+<tr><td class="h"><a id="L1107">1107</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if $name =~ /$RESERVED_NAME_RE/</td></tr>
+<tr><td class="h"><a id="L1108">1108</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">unless length $name</td></tr>
+<tr><td class="h"><a id="L1118">1118</a></td><td class="c0">0</td><td class="c0">T</td><td class="c0">F</td><td class="s">if (exists $$used{lc $file})</td></tr>
 </table>
 </body>
 </html>
