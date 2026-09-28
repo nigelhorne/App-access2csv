@@ -21,6 +21,9 @@ Version 0.001.0
     # Make files that Excel opens correctly, replace old files, no log file
     access2csv --encoding utf8-bom --overwrite --no-log shop.accdb
 
+    # Read the database from standard input ("-"), e.g. from a download
+    curl -s https://example.com/shop.accdb | access2csv --output-dir exports -
+
     # Nightly job: quiet, with a log in a fixed place, and stop on failure
     access2csv --no-progress --log /var/log/access2csv.log \
             --output-dir /srv/exports --overwrite shop.accdb || exit 1
@@ -58,6 +61,19 @@ are removed.  A name such as `CON` or `NUL` (reserved on Windows) gets a
 If two tables would get the same file name, the second one gets `_2`,
 the third `_3`, and so on.  Upper and lower case count as the same here,
 because Windows and macOS treat `Orders.csv` and `ORDERS.csv` as one file.
+
+### Reading the Database From Standard Input
+
+If the database name is `-`, the database is read from standard input
+instead of a file, so it can be piped in.  mdbtools can only read a real
+file, so the data is first copied to a private temporary file (readable
+by you only) in the temporary folder (`TMPDIR`, or `/tmp`), and that
+copy is deleted when the program ends - whether it succeeds, fails or is
+interrupted.
+
+`-` is refused if standard input is a terminal (there is nothing to
+read but the keyboard), and empty input is an error.  To use a file that
+is really called `-`, write `./-`.
 
 ### How Files Are Written
 
@@ -150,7 +166,8 @@ The program ends with one of these numbers.  Scripts can test it.
        --help and --man.
     1  At least one table was not exported.  The other tables were.
     2  The command line was wrong, for example an unknown option or no
-       database name.
+       database name, or "-" was given while standard input is a
+       terminal.
     3  A fatal error happened before any table was exported, for example
        the database does not exist or mdbtools is not installed.
 ```
@@ -202,6 +219,11 @@ All messages that the program prints and logs are in plain ASCII English.
     Choose the language of messages (see [App::Access2CSV::I18N](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AI18N)).  Only the
     language code at the start is used; any other value means English.
 
+- `TMPDIR`
+
+    Where a database read from standard input (`-`) is copied while it is
+    exported.  Default: `/tmp`.
+
 - `MDB_ICONV`
 
     Not read by this program, but by mdbtools: it sets the character set
@@ -228,6 +250,10 @@ checked first and only then marked as safe.  Under `-T`, Perl also
 refuses to start mdbtools while `PATH` contains a folder other users can
 write to; the program then stops with "Insecure directory in
 $ENV{PATH}".
+- **Private copies of piped input.**  A database read from standard
+input is copied with [File::Temp](https://metacpan.org/pod/File%3A%3ATemp) (a new, unpredictable name, readable
+by you only) and deleted when the program ends, also after an error or
+an interruption.
 - **Safe file names.**  Table names cannot place a file outside the
 output folder, and control characters - including invisible
 text-direction controls and C1 controls - are replaced by `_`.
@@ -268,6 +294,11 @@ call `exit`.  Write `exit App::Access2CSV->run(@ARGV)` if you want
 the program to end.
 - **Pass a list, not an array reference.**  Write
 `App::Access2CSV->run(@args)`, not `App::Access2CSV->run(\@args)`.
+- **A file called "-".**  `-` means standard input, even after
+`--`.  Write `./-` for a file with that name.
+- **Piped databases need temporary space.**  The whole database is
+copied to the temporary folder first; if that folder is small, set
+`TMPDIR` to one with room.
 
 ## Methods
 
@@ -343,7 +374,9 @@ they were.
 Valid and invalid values (tested in `t/domain.t`):
 
 ```
-    database names  exactly 1; 0 or 2 or more give exit status 2
+    database names  exactly 1; 0 or 2 or more give exit status 2.
+                    "-" means standard input (exit 2 if it is a
+                    terminal, 3 if it is empty or unreadable)
     --encoding      utf8, utf8-bom or cp1252; anything else gives exit 3
     --table         0 times (all tables), once, or many times; names
                     may be non-ASCII
@@ -373,6 +406,16 @@ Valid and invalid values (tested in `t/domain.t`):
     | Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
     |                                     | it was empty, or more than    |                              |
     |                                     | one was given                 |                              |
+    | Standard input is a terminal: pipe  | "-" was given, but nothing is | Pipe the database in, or     |
+    |  the database in, or give its file  | piped in                      | give its file name           |
+    |  name (exit 2)                      |                               |                              |
+    | access2csv: Standard input is empty:| "-" was given, but the pipe   | Check the command that       |
+    |  no database was piped in (exit 3)  | delivered nothing             | produces the database        |
+    | access2csv: Cannot read standard    | Reading the pipe failed; E is | See E                        |
+    |  input: E (exit 3)                  | the reason                    |                              |
+    | access2csv: Interrupted by SIGx     | Stopped (Ctrl-C, kill) while  | Run again                    |
+    |  while reading the database from    | waiting for piped input; the  |                              |
+    |  standard input (exit 3)            | partial copy was deleted      |                              |
     | access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
     |  E (exit 3)                         | written; E is the reason from | or --no-log                  |
     |                                     | the operating system, "no     |                              |
@@ -437,10 +480,14 @@ You do not need to read this section to use the program.
     │ ¬ parsed(argv?) ⇒ status! = 2
     │ parsed(argv?) ∧ help ∈ dom opts ⇒ status! = 0
     │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
-    │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ⇒
-    │   (fatal(Exporter.Run(head rest)) ⇒ status! = 3) ∧
-    │   (¬ fatal(Exporter.Run(head rest)) ⇒
-    │        status! = Exporter.Run(head rest).status!)
+    │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧ head rest = "-" ∧
+    │   isTerminal(stdin) ⇒ status! = 2
+    │ db = (if head rest = "-" then copy(stdin) else head rest)
+    │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧
+    │   ¬ (head rest = "-" ∧ isTerminal(stdin)) ⇒
+    │   (fatal(Exporter.Run(db)) ⇒ status! = 3) ∧
+    │   (¬ fatal(Exporter.Run(db)) ⇒ status! = Exporter.Run(db).status!)
+    │ files'(copy(stdin)) undefined          -- the copy never outlives the run
     └────────────────────────────────────────────────────────────
 ```
 
@@ -507,6 +554,13 @@ happens on the way.
            v      v            |
       return 0  return 1   return 3
 ```
+
+Not drawn above: when the database is `-`, there is one more state,
+READING STDIN, between PARSING and OPENING LOG.  Entry is refused (USAGE
+ERROR, return 2) if standard input is a terminal.  Its action: copy
+standard input to a private temporary file.  Empty or unreadable input,
+or an interruption, goes to FATAL (return 3).  The copy is deleted when
+the run ends, whichever way it ends.
 
 ## Author
 

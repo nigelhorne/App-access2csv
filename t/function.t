@@ -357,7 +357,9 @@ subtest 'Exporter::_check_database accepts only readable regular files' => sub {
 	is($e->_check_database($db), $e, 'readable file: returns $self');
 
 	SKIP: {
+		# chmod 0 cannot make a file unreadable for root, nor on Windows
 		skip('root can read any file', 1) if $> == 0;
+		skip('chmod cannot make a file unreadable on Windows', 1) if $^O eq 'MSWin32';
 		chmod 0, $db;
 		throws_ok { $e->_check_database($db) } qr/\ADatabase \Q$db\E is not readable at /, 'unreadable';
 		chmod oct(644), $db;

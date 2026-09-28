@@ -28,7 +28,7 @@ use Test::Mockingbird;
 use Test::Returns;
 
 use Capture::Tiny qw(capture);
-use Errno qw(EISDIR ENOENT ENOTDIR);
+use Errno qw(EACCES EISDIR ENOENT ENOTDIR);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Readonly;
@@ -66,6 +66,7 @@ Readonly::Hash my %OS => (
 	enoent  => do { local $! = ENOENT; "$!" },
 	enotdir => do { local $! = ENOTDIR; "$!" },
 	eisdir  => do { local $! = EISDIR; "$!" },
+	eacces  => do { local $! = EACCES; "$!" },
 );
 
 # The ledger: every documented message and return state, by POD section
@@ -489,7 +490,9 @@ subtest 'run: existing files' => sub {
 	my $guard2 = mdbtools_scenario(tables => ['Blocked']);
 	($status, undef, $stderr) = export($db, output_dir => $out, overwrite => 1);
 	is($status, $CONFIG{exit_failure}, 'rename failure');
-	like($stderr, qr/^FAILED: Blocked: Cannot write \Q$out\E.Blocked\.csv: \Q$OS{eisdir}\E at /m, 'message with OS text');
+	# The operating system's own reason: "Is a directory" on Unix,
+	# "Permission denied" on Windows
+	like($stderr, qr/^FAILED: Blocked: Cannot write \Q$out\E.Blocked\.csv: (?:\Q$OS{eisdir}\E|\Q$OS{eacces}\E) at /m, 'message with OS text');
 	ticked('run: Cannot write');
 };
 
@@ -588,7 +591,10 @@ subtest 'run: fatal errors croak before writing anything' => sub {
 	ticked('run: Database is not a regular file');
 
 	SKIP: {
+		# chmod 0 cannot make a file unreadable for root, nor on Windows
+		# (which has no Unix permission bits)
 		skip('root can read any file, so this message cannot be triggered', 1) if $> == 0;
+		skip('chmod cannot make a file unreadable on Windows', 1) if $^O eq 'MSWin32';
 		chmod 0, $db;
 		throws_ok { $e->run($db) } qr/\ADatabase \Q$db\E is not readable at /, 'unreadable';
 		chmod oct(644), $db;
@@ -630,7 +636,9 @@ subtest 'run: output folder cannot be created' => sub {
 	# asked for, not about its parent
 	my $out = File::Spec->catdir($db, 'sub');
 	throws_ok { $CONFIG{exporter}->new(output_dir => $out, progress => 0)->run($db) }
-		qr/\ACannot create output directory \Q$out\E: \Q$OS{enotdir}\E at /, 'exact message';
+		# Unix: "Not a directory".  Windows: "No such file or directory",
+		# to which File::Path adds the Windows system message ($^E)
+		qr/\ACannot create output directory \Q$out\E: (?:\Q$OS{enotdir}\E|\Q$OS{enoent}\E(?:; [^\n]+)?) at /, 'exact message';
 	ticked('run: Cannot create output directory');
 };
 
@@ -746,10 +754,13 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	is($stderr, "access2csv: Cannot open log file $log: $OS{enoent}\n", 'exact line');
 	ticked('app: Cannot open log file');
 
-	symlink("$dir/elsewhere", "$dir/link.log") or die $!;
-	($status, undef, $stderr) = cli('--log', "$dir/link.log", $db);
-	is($status, $CONFIG{exit_fatal}, 'log file is a symbolic link');
-	is($stderr, "access2csv: Cannot open log file $dir/link.log: it is a symbolic link\n", 'exact reason');
+	SKIP: {
+		# Windows only allows symbolic links with extra privileges
+		skip("cannot create a symbolic link here: $!", 2) unless eval { symlink("$dir/elsewhere", "$dir/link.log") };
+		($status, undef, $stderr) = cli('--log', "$dir/link.log", $db);
+		is($status, $CONFIG{exit_fatal}, 'log file is a symbolic link');
+		is($stderr, "access2csv: Cannot open log file $dir/link.log: it is a symbolic link\n", 'exact reason');
+	}
 	ticked('app: it is a symbolic link');
 
 	# Database "-": read from standard input, which is reopened here
@@ -766,9 +777,15 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	is($stderr, "access2csv: Standard input is empty: no database was piped in\n", 'exact message');
 	ticked('app: Standard input is empty');
 
-	($status, undef, $stderr) = $with_stdin->($dir, '--no-log', '-');
-	is($status, $CONFIG{exit_fatal}, 'unreadable standard input (a folder)');
-	is($stderr, "access2csv: Cannot read standard input: $OS{eisdir}\n", 'exact message');
+	SKIP: {
+		# A folder as standard input opens but cannot be read on Unix.
+		# Windows refuses to open a folder as a file at all, and offers no
+		# other simple way to make reading standard input fail.
+		skip('cannot make reading standard input fail on Windows', 2) if $^O eq 'MSWin32';
+		($status, undef, $stderr) = $with_stdin->($dir, '--no-log', '-');
+		is($status, $CONFIG{exit_fatal}, 'unreadable standard input (a folder)');
+		is($stderr, "access2csv: Cannot read standard input: $OS{eisdir}\n", 'exact message');
+	}
 	ticked('app: Cannot read standard input');
 
 	SKIP: {
@@ -780,8 +797,12 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	}
 	ticked('app: Standard input is a terminal');
 
-	{
-		# A stalled pipe; a child process then sends SIGTERM to this one
+	SKIP: {
+		# A stalled pipe; a child process then sends SIGTERM to this one.
+		# On Windows, fork is emulated and kill 'TERM' ends the whole process
+		# outright (there are no signal handlers to catch it), so this can
+		# only be tested elsewhere.
+		skip('signals cannot interrupt a read on Windows', 2) if $^O eq 'MSWin32';
 		pipe(my $reader, my $writer) or die "pipe: $!";
 		my $parent = $$;
 		my $pid = fork // die "fork: $!";
