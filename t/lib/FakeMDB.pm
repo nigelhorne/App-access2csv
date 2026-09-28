@@ -13,6 +13,8 @@ package FakeMDB;
 #   Japanese - UTF-8 text that cp1252 cannot represent
 #   Latin1   - bytes that are not valid UTF-8
 #   Truncated - output that stops in the middle of a UTF-8 character
+#   Slow     - writes part of the table, then waits 30 seconds (for
+#              interrupting an export half-way)
 #   anything else - a two-line CSV naming the table
 
 use strict;
@@ -66,6 +68,7 @@ binmode STDOUT;
 if($table eq 'Broken') { print STDERR "corrupt table\n"; exit 1 }
 if($table eq 'Killed') { kill 'TERM', $$; sleep 5; exit 0 }
 if($table eq 'Truncated') { print "\"id\"\n\"Caf\xC3"; exit 0 }
+if($table eq 'Slow') { $| = 1; print "\"id\"\n1\n"; sleep 30; exit 0 }
 my %body = (
 	Unicode  => "Caf\xC3\xA9 \xE2\x82\xAC",
 	Japanese => "\xE6\x97\xA5\xE6\x9C\xAC",

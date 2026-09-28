@@ -702,7 +702,18 @@ subtest 'Exporter::_install_file renames into place with normal permissions' => 
 	umask($old_umask);
 
 	ok(-f $outfile, 'still there after the temporary object is destroyed');
-	is((stat($outfile))[2] & oct(777), oct(644), '0666 less umask 022');
+
+	# Whatever the platform, the result is an ordinary file the user can
+	# read and write (File::Temp's own files are private, mode 0600)
+	ok(-r $outfile && -w $outfile, 'readable and writable');
+
+	SKIP: {
+		# Windows has no Unix permission bits: stat() makes the mode up from
+		# the read-only flag (0666 for any writable file) and umask has no
+		# effect, so the exact bits can only be checked elsewhere
+		skip('Unix permission bits do not exist on Windows', 1) if $^O eq 'MSWin32';
+		is((stat($outfile))[2] & oct(777), oct(644), '0666 less umask 022');
+	}
 };
 
 subtest 'Exporter::_install_file croaks with the OS reason on failure' => sub {

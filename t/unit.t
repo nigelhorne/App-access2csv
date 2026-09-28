@@ -89,6 +89,7 @@ my %LEDGER = map { $_ => 1 } (
 	'run: returns 1',
 	'run: Cannot read database',
 	'run: must be called on an object',
+	'run: Interrupted by signal',
 	'run: Database is not a regular file',
 	'run: Database is not readable',
 	'run: Required program not found in PATH',
@@ -238,7 +239,13 @@ sub check_globals {
 	is($after{eval_error}, $CONFIG{sentinel}, "$name: \$@ kept");
 	is($after{errno}, ENOENT, "$name: \$! kept");
 	is($after{child}, $CONFIG{bad_status}, "$name: \$? kept");
-	cmp_ok($remaining, '>=', $CONFIG{alarm_secs} - $CONFIG{alarm_slack}, "$name: alarm still pending");
+	SKIP: {
+		# Windows emulates alarm() with a timer, and its alarm() always
+		# returns 0 rather than the seconds left, so it cannot report
+		# whether the alarm is still pending
+		skip("$name: alarm() does not return the time left on Windows", 1) if $^O eq 'MSWin32';
+		cmp_ok($remaining, '>=', $CONFIG{alarm_secs} - $CONFIG{alarm_slack}, "$name: alarm still pending");
+	}
 	return;
 }
 
@@ -564,6 +571,13 @@ subtest 'run: fatal errors croak before writing anything' => sub {
 
 	throws_ok { $CONFIG{exporter}->run($db) } qr/\Arun\(\) must be called on an object created by new\(\) at /, 'run on the class, not an object';
 	ticked('run: must be called on an object');
+
+	{
+		# Ctrl-C while mdb-tables runs: the child dies of SIGINT
+		my $int = mock_scoped("$CONFIG{exporter}::run3" => sub { ${ $_[3] } = ''; $? = 2; return 1 });
+		throws_ok { $e->run($db) } qr/\AInterrupted by SIGINT: stopped, and the table being exported was discarded at /, 'interrupted';
+		ticked('run: Interrupted by signal');
+	}
 
 	throws_ok { $e->run($dir) } qr/\ADatabase \Q$dir\E is not a regular file at /, 'folder';
 	ticked('run: Database is not a regular file');

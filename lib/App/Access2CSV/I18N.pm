@@ -91,6 +91,7 @@ our %MESSAGES = (
 		},
 		fatal              => 'access2csv: %s',
 		invalid_name       => 'the name contains a NUL byte',
+		interrupted        => 'Interrupted by SIG%s: stopped, and the table being exported was discarded',
 		invalid_utf8       => 'Table %s, line %d: output of mdb-export is not valid UTF-8',
 		log_failed         => 'Cannot write to the log: %s',
 		log_is_symlink     => 'it is a symbolic link',

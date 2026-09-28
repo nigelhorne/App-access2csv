@@ -4,6 +4,8 @@ use strict;
 use warnings;
 use autodie qw(:all);
 
+use Config;
+
 # Sub::Private must be in enforce mode before it is loaded, so that
 # private methods still work through $self->method dispatch
 BEGIN { $Sub::Private::config{mode} = 'enforce' }
@@ -54,6 +56,10 @@ Readonly::Scalar my $UNTAINT_RE => qr/\A([^\x00]+)\z/s;
 # Environment variables that can change how a program is started (see
 # perlsec); removed for the mdbtools processes
 Readonly::Array my @UNSAFE_ENV => qw(IFS CDPATH ENV BASH_ENV);
+
+# Signals that mean "stop now" (Ctrl-C is INT, Ctrl-\ is QUIT; TERM and
+# HUP come from kill, service managers and closed terminals)
+Readonly::Array my @INTERRUPT_SIGNALS => qw(INT QUIT TERM HUP);
 
 # Encoding objects, looked up once: calling Encode::decode/encode by name
 # repeats the lookup for every line, which made conversion about 4 times
@@ -491,6 +497,13 @@ folder cannot be created.
 =item * Switches C<show_counts> off for this exporter if C<mdb-count> is
 missing.
 
+=item * While it runs, handles the signals INT, QUIT, TERM and HUP (only
+those you have not set a handler for yourself; they are restored when
+C<run> returns).  Any of them stops the run: the table being exported is
+discarded - its temporary file deleted, any old CSV file left as it was -
+no further table is started, and C<run> croaks.  Pressing Ctrl-C, which
+also stops the mdbtools program, has the same effect.
+
 =item * Leaves your C<$@>, C<$!>, C<$?>, C<$_>, C<$.> and any pending C<alarm>
 as they were (except that a croak sets C<$@> in your C<eval>, as usual).
 
@@ -571,6 +584,9 @@ only that table fails; C<run> warns, logs, and carries on.
 	+-----------------------------------------+------------------------------+-------------------------------+
 	| Message                                 | Meaning                      | What to do                    |
 	+-----------------------------------------+------------------------------+-------------------------------+
+	| Interrupted by SIGx: stopped, and the   | Ctrl-C, Ctrl-\\, kill or a   | Run again; tables finished    |
+	|  table being exported was discarded     | closed terminal stopped the  | before the interruption are   |
+	|  (fatal)                                | run                          | complete                      |
 	| run() must be called on an object       | run was called on the class  | Call new() first, then run()  |
 	|  created by new() (fatal)               | or on something that is not  | on the object it returns      |
 	|                                         | an exporter                  |                               |
@@ -668,6 +684,20 @@ sub run {
 	$self->_check_database($database)
 		->_verify_dependencies()
 		->_reset_names();
+
+	# Stopping part-way must behave like a failed transaction: the table
+	# being exported is discarded (its temporary file deleted) and no
+	# further table is started.  Perl's default action for these signals
+	# is to exit at once, skipping the clean-up, so while run() is active
+	# they raise an exception instead.  A handler the caller has set is
+	# left alone; everything is restored when run() returns.
+	local $self->{interrupted};
+	my %names = map { $_ => 1 } split ' ', $Config{sig_name};
+	my @ours = grep { $names{$_} && ($SIG{$_} // 'DEFAULT') eq 'DEFAULT' } @INTERRUPT_SIGNALS;
+	local @SIG{@ours} = (sub {
+		$self->{interrupted} = $_[0];
+		die $self->_printable($self->i18n('interrupted', { params => [$_[0]] })), "\n";
+	}) x @ours;
 
 	# Premise: the database is now known to be a readable regular file, and
 	# it is only ever passed to mdbtools as one list argument after "--".
@@ -884,6 +914,11 @@ sub _export_all :Private {
 		# One bad table should not stop the rest from being exported
 		next if eval { $self->_export_table($database, $table); 1 };
 
+		# ... but an interruption stops them all: the failed table has been
+		# discarded (its temporary file went with the exception), and no
+		# further table is started
+		$self->_croak_i18n('interrupted', { params => [$self->{interrupted}] }) if $self->{interrupted};
+
 		my $error = $@ || 'Unknown error';
 		chomp $error;
 		++$failed;
@@ -1062,6 +1097,14 @@ sub _run_program :Private {
 		$self->_croak_i18n('program_not_run', { params => [$name, $reason] });
 	}
 	if($status & 127) {
+		# While system() waits, Perl ignores INT and QUIT in this process,
+		# so Ctrl-C shows up only as the child dying of SIGINT.  Treat
+		# that as the user stopping the whole run, not as a bad table.
+		my $signal = (split ' ', $Config{sig_name})[$status & 127] // '';
+		if($signal eq 'INT' || $signal eq 'QUIT') {
+			$self->{interrupted} = $signal;
+			$self->_croak_i18n('interrupted', { params => [$signal] });
+		}
 		$self->_croak_i18n('program_signalled', { params => [$name, $status & 127] });
 	}
 	if($status) {
@@ -1294,6 +1337,12 @@ within normal limits.
 
 =item * Row counts need one extra C<mdb-count> run for each table.
 
+=item * When the program itself is sent SIGTERM or SIGHUP (not Ctrl-C),
+the mdbtools program it was running is not stopped: it runs to the end,
+writing only to the temporary file that has already been deleted.
+L<IPC::Run3> does not say which process it started, so it cannot be
+signalled.
+
 =item * The private and protected methods are protected by L<Sub::Private>
 and L<Sub::Protected> only when this module is loaded with C<use>.  When
 C<$ENV{HARNESS_ACTIVE}> is set (under C<prove>), the checks are turned
@@ -1457,5 +1506,10 @@ the way.
 	      return 0      return 0    return 1
 	    (to READY)     (M = 0)      (M > 0)
 	                  (to READY)   (to READY)
+
+Not drawn above, because it can happen in every state after READY: an
+interruption (SIGINT, SIGQUIT, SIGTERM or SIGHUP) goes to FATAL at once.
+Its action: discard the table being exported (delete its temporary file),
+start no further table, croak "Interrupted by SIGx".
 
 =cut

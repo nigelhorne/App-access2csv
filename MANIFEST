@@ -25,5 +25,6 @@ t/logic.t
 t/path.t
 t/security.t
 t/taint.t
+t/transaction.t
 t/transition.t
 t/unit.t
