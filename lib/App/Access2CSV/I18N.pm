@@ -84,6 +84,7 @@ our %MESSAGES = (
 		column_output      => 'OUTPUT FILE',
 		column_rows        => 'ROWS',
 		column_table       => 'TABLE',
+		count_failed       => 'Cannot count the rows of %s: %s',
 		database_not_file  => 'Database %s is not a regular file',
 		database_not_found => 'Cannot read database %s: %s',
 		database_unreadable => 'Database %s is not readable',

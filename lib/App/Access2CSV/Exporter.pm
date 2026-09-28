@@ -99,6 +99,9 @@ Readonly::Scalar my $END_OF_OPTIONS => '--';
 # Temporary files are hidden and live next to the target for atomic rename
 Readonly::Scalar my $TEMP_TEMPLATE => '.access2csv-XXXXXX';
 
+# Shown in the dry run's ROWS column when a table could not be counted
+Readonly::Scalar my $UNKNOWN_COUNT => '?';
+
 # Dry-run table layout
 Readonly::Scalar my $TABLE_COLUMN_WIDTH => 40;
 Readonly::Scalar my $ROWS_COLUMN_WIDTH  => 10;
@@ -476,7 +479,8 @@ C<1> if at least one table was not exported (the others were).
 
 =over 4
 
-=item * Creates the output folder if needed (not in dry-run mode).
+=item * Creates the output folder if needed (not in dry-run mode, and
+not when no table is selected).
 
 =item * Writes one CSV file per table (not in dry-run mode).
 
@@ -603,6 +607,8 @@ only that table fails; C<run> warns, logs, and carries on.
 	|  (fatal)                                | E is the reason for D itself |                               |
 	|                                         | (e.g. "Not a directory" when |                               |
 	|                                         | a file is in the way)        |                               |
+	| Cannot count the rows of T: E (warning) | mdb-count failed for table T | The table is still exported   |
+	|                                         | (only with show_counts)      | (dry run: count shown as "?") |
 	| Tables not found in database: T         | Names in tables are not in   | Check spelling and case       |
 	|  (warning)                              | the database                 |                               |
 	| mdb-count not found in PATH; row counts | show_counts is on, but       | Install mdb-count, or turn    |
@@ -638,13 +644,17 @@ only that table fails; C<run> warns, logs, and carries on.
 	tables := the sorted user tables, filtered by "tables"
 	          (warn about names that are not found)
 	if dry run:
-		print the table -> file list
+		print the table -> file list (row count "?" with a warning
+		      if a count fails)
 		return 0
-	create the output folder (croak if that fails)
+	if there are tables to export:
+		create the output folder (croak if that fails)
 	for each table:
 		print "[n/total] table" if progress is on
 		try to export the table
 		if that failed: warn, log, and count the failure
+		(a failed row count after the file is in place is only a
+		 warning; the table still counts as exported)
 	log the summary
 	return 1 if any table failed, else 0
 
@@ -664,15 +674,10 @@ sub run {
 
 	# An undef database is a missing one, not a file called "".  Work on a
 	# copy: get_params hands back the caller's own hash when given one.
-	my $input = get_params('database', \@_);
-	# Params::Get either dies or returns a hash reference (proved by the
-	# "dead code" subtest in t/path.t), so this test is always true and its
-	# implicit else can never be reached.
-	# TODO: Unreachable code detected during path analysis. Investigate for removal.
-	if(ref($input) eq 'HASH') {
-		$input = { %{$input} };
-		delete $input->{database} unless defined $input->{database};
-	}
+	# (Params::Get either dies or returns a hash reference - proved in
+	# t/path.t - so no test of what it returned is needed.)
+	my $input = { %{ get_params('database', \@_) } };
+	delete $input->{database} unless defined $input->{database};
 	my $params = validate_strict(
 		schema => { database => { type => 'string', min => 1 } },
 		input  => $input,
@@ -712,11 +717,9 @@ sub run {
 		return set_return($EXIT_OK, { %RUN_STATUS_SCHEMA });
 	}
 
-	# TODO: FSM Discrepancy - with no tables selected (e.g. tables => []),
-	# the output folder is still created and _export_all goes straight to
-	# SUMMARY ("Processed 0 tables").  The diagram has no PREPARING ->
-	# SUMMARY edge; it shows PREPARING -> EXPORTING only.
-	my $failed = $self->_make_output_dir()->_export_all($database, $tables);
+	# The output folder is only made when there is something to put in it;
+	# with no tables selected the run goes straight to the summary
+	my $failed = (@{$tables} ? $self->_make_output_dir() : $self)->_export_all($database, $tables);
 	return set_return($failed ? $EXIT_FAILURE : $EXIT_OK, { %RUN_STATUS_SCHEMA });
 }
 
@@ -962,15 +965,11 @@ sub _export_table :Protected {
 
 	$self->_install_file($tmp, $outfile);
 
-	# Row counts are optional extras, reported only if asked for
-	# TODO: FSM Discrepancy - the file has already been renamed into place
-	# (the diagram's "success" edge), but if mdb-count now fails, the
-	# exception makes _export_all report the table as FAILED and count it.
-	# The diagram has no edge from a written file to "failure", and its
-	# failure edge says the temporary file is deleted.  Either make a count
-	# failure a warning, or document this edge.
-	if($self->{show_counts}) {
-		my $rows = $self->_count_rows($database, $table);
+	# The file is now in place, so the table has been exported.  Row counts
+	# are optional extras: if counting fails it is only a warning (see
+	# _try_count_rows), and the export is logged without a count.
+	my $rows = $self->{show_counts} ? $self->_try_count_rows($database, $table) : undef;
+	if(defined $rows) {
 		$self->_log(info => 'exported_rows', { params => [$table, $outfile, $rows], count => $rows });
 	} else {
 		$self->_log(info => 'exported', { params => [$table, $outfile] });
@@ -1057,6 +1056,29 @@ sub _count_rows :Private {
 	# of no output at all
 	my ($rows) = ($stdout // '') =~ /(\d+)/;
 	return $rows || 0;
+}
+
+# _try_count_rows
+# Purpose:        Count a table's rows, where a failure is only a warning.
+#                 Row counts are optional extras: they must never make an
+#                 exported table count as failed, nor end a dry run.
+# Entry Criteria: $self->{programs}{'mdb-count'} is set.
+# Exit Status:    Returns the count, or undef if it could not be had.
+# Side Effects:   Runs mdb-count; on failure warns and logs "Cannot count
+#                 the rows of T: E".  An interruption is not a failure to
+#                 count: it is passed on, to stop the run.
+sub _try_count_rows :Private {
+	my ($self, $database, $table) = @_;
+
+	local $@;
+	my $rows = eval { $self->_count_rows($database, $table) };
+	return $rows if defined $rows;
+
+	die $@ if $self->{interrupted};
+	my $error = $@;
+	chomp $error;
+	$self->_warn('count_failed', { params => [$table, $error] });
+	return;
 }
 
 # _run_program
@@ -1190,10 +1212,9 @@ sub _dry_run :Private {
 
 	foreach my $table (@{$tables}) {
 		my @row = ($table);
-		# TODO: FSM Discrepancy - if mdb-count fails here the exception ends
-		# the run (DRY RUN -> FATAL).  The diagram shows DRY RUN only ever
-		# returning 0.
-		push @row, $self->_count_rows($database, $table) if $counts;
+		# A count that cannot be had is shown as "?" (with a warning), so a
+		# dry run still lists every table and succeeds
+		push @row, $self->_try_count_rows($database, $table) // $UNKNOWN_COUNT if $counts;
 		# The table name comes from the database, so show it escaped (the
 		# file name is already safe; escaping it too costs nothing)
 		$row[0] = $self->_printable($row[0]);
@@ -1451,59 +1472,64 @@ the way.
 	            action: validate settings, apply defaults
 	                  |
 	                  v
-	          +----------------+ <------------------------------------+
-	          |     READY      |                                      |
-	          +----------------+                                      |
-	                  | run($database)                                |
-	                  v                                               |
-	          +----------------+  database missing or unreadable,    |
-	          |   CHECKING     |  mdb-tables/mdb-export not found    |
-	          | database and   |------------------------------+       |
-	          | programs       |                              |       |
-	          +----------------+                              |       |
-	                  | OK; action: forget old file names;    |       |
-	                  |   warn if mdb-count is missing and    |       |
-	                  |   switch show_counts off              |       |
-	                  v                                       |       |
-	          +----------------+  mdb-tables fails            |       |
-	          |    LISTING     |------------------------------+       |
-	          | tables         |                              |       |
-	          +----------------+                              |       |
-	                  | action: drop system tables, sort,     |       |
-	                  |   filter by "tables", warn about      |       |
-	                  |   unknown names                       |       |
-	          +-------+--------+                              |       |
-	 dry_run  |                | not dry_run                  |       |
-	          v                v                              |       |
-	 +----------------+  +----------------+  mkdir fails      |       |
-	 |    DRY RUN     |  |   PREPARING    |-------------------+       |
-	 | print the list |  | output folder  |                   |       |
-	 | to STDOUT      |  +----------------+                   |       |
-	 +----------------+          | folder exists             v       |
-	          |                  v                    +--------------+ |
-	          |          +----------------+           |    FATAL     | |
-	          |          |   EXPORTING    |<--+       | croak; no    | |
-	          |          | one table      |   |       | file written |-+
-	          |          +----------------+   |       +--------------+
-	          |            |           |      | next table
-	          |   success  |           | failure (file exists,
-	          |   action:  |           |   mdb-export fails, bad
-	          |   rename   |           |   character, ...)
-	          |   temp file|           |   action: delete temp file,
-	          |   into     |           |   carp, log, count failure
-	          |   place,   |           |      |
-	          |   log      |           +------+
-	          |            +------------------+
-	          |                  | no tables left
-	          |                  v
-	          |          +----------------+
-	          |          |    SUMMARY     |  action: log "Processed N tables,
-	          |          +----------------+          M failed"
-	          |             |          |
-	          v             v          v
-	      return 0      return 0    return 1
-	    (to READY)     (M = 0)      (M > 0)
-	                  (to READY)   (to READY)
+	          +----------------+ <-------------------------------------+
+	          |     READY      |                                       |
+	          +----------------+                                       |
+	                  | run($database)                                 |
+	                  v                                                |
+	          +----------------+  database missing or unreadable,     |
+	          |   CHECKING     |  mdb-tables/mdb-export not found     |
+	          | database and   |-------------------------------+       |
+	          | programs       |                               |       |
+	          +----------------+                               |       |
+	                  | OK; action: forget old file names;     |       |
+	                  |   warn if mdb-count is missing and     |       |
+	                  |   switch show_counts off               |       |
+	                  v                                        |       |
+	          +----------------+  mdb-tables fails             |       |
+	          |    LISTING     |-------------------------------+       |
+	          | tables         |                               |       |
+	          +----------------+                               |       |
+	                  | action: drop system tables, sort,      |       |
+	                  |   filter by "tables", warn about       |       |
+	                  |   unknown names                        |       |
+	     +------------+-------------+                          |       |
+	     | dry_run    | no tables   | tables to export         |       |
+	     v            | selected    v                          |       |
+	 +------------+   |    +----------------+  mkdir fails     |       |
+	 |  DRY RUN   |   |    |   PREPARING    |------------------+       |
+	 | print list |   |    | output folder  |                  |       |
+	 | to STDOUT  |   |    +----------------+                  v       |
+	 +------------+   |            | folder exists     +--------------+|
+	     |            |            v                   |    FATAL     ||
+	     |            |    +----------------+          | croak; no    ||
+	     |            |    |   EXPORTING    |<--+      | file written |+
+	     |            |    | one table      |   |      +--------------+
+	     |            |    +----------------+   | next table
+	     |            |      |           |      |
+	     |            |      | success   | failure (file exists,
+	     |            |      | action:   |   mdb-export fails, bad
+	     |            |      | rename    |   character, ...)
+	     |            |      | temp file |   action: delete temp file,
+	     |            |      | into      |   carp, log, count failure
+	     |            |      | place,    |      |
+	     |            |      | log       +------+
+	     |            |      +------------------+
+	     |            |              | no tables left
+	     |            v              v
+	     |           +------------------+
+	     |           |     SUMMARY      |  action: log "Processed N tables,
+	     |           +------------------+          M failed"
+	     |              |            |
+	     v              v            v
+	 return 0       return 0     return 1
+	 (to READY)     (M = 0)      (M > 0)
+	               (to READY)   (to READY)
+
+Row counts (C<show_counts>) are counted in DRY RUN and after a table's
+file is in place.  A count that fails is only a warning ("Cannot count
+the rows of T"): the dry run shows C<?>, and an exported table still
+counts as a success.
 
 Not drawn above, because it can happen in every state after READY: an
 interruption (SIGINT, SIGQUIT, SIGTERM or SIGHUP) goes to FATAL at once.

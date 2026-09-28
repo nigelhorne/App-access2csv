@@ -3,21 +3,19 @@
 # State transition tests for the two state machines documented under
 # =head1 STATE DIAGRAM:
 #
-#	App::Access2CSV::run          PARSING -> HELP | USAGE ERROR | OPENING LOG
+#	App::Access2CSV::run          PARSING -> HELP | USAGE ERROR | CHECKING SETTINGS
+#	                              CHECKING SETTINGS -> READING STDIN ("-") | OPENING LOG | FATAL
+#	                              READING STDIN -> OPENING LOG | FATAL
 #	                              OPENING LOG -> EXPORTING | FATAL
 #	                              EXPORTING -> return 0 | return 1 | FATAL
 #	App::Access2CSV::Exporter     new -> READY -> CHECKING -> LISTING
-#	                              LISTING -> DRY RUN | PREPARING
+#	                              LISTING -> DRY RUN | SUMMARY (nothing selected) | PREPARING
 #	                              PREPARING -> EXPORTING (per table) -> SUMMARY
 #	                              failures -> FATAL; every end -> READY
 #
 # How states are observed: a Test::Mockingbird "before" hook on the
 # method that begins each state appends the state's name to a trace, so a
 # run's path through the diagram can be compared with the documented one.
-#
-# Where the code and the diagram disagree, the code carries a
-# "TODO: FSM Discrepancy" comment, and the test asserts what the DIAGRAM
-# says inside a TODO block: it is reported, but does not fail the suite.
 #
 # Set TEST_VERBOSE=1 to see each trace.
 
@@ -60,6 +58,8 @@ Readonly::Hash my %CONFIG => (
 # State names, as in the diagrams
 Readonly::Hash my %S => (
 	parsing   => 'PARSING',
+	settings  => 'CHECKING SETTINGS',
+	stdin     => 'READING STDIN',
 	help      => 'HELP',
 	usage     => 'USAGE ERROR',
 	open_log  => 'OPENING LOG',
@@ -103,10 +103,23 @@ sub trace_app {
 	my $a = $CONFIG{app};
 	before("${a}::_parse_options", sub { push @TRACE, $S{parsing} });
 	before("${a}::_usage",         sub { push @TRACE, $_[1] == $CONFIG{exit_ok} ? $S{help} : $S{usage} });
+	# Exporter->new is called twice (to check, then to build); the state
+	# is entered once
+	before("$CONFIG{exporter}::new", sub { push @TRACE, $S{settings} unless grep { $_ eq $S{settings} } @TRACE });
+	before("${a}::_read_stdin",    sub { push @TRACE, $S{stdin} });
 	before("${a}::_make_logger",   sub { push @TRACE, $S{open_log} if length($_[1]{log} // '') });
 	before("$CONFIG{exporter}::run", sub { push @TRACE, $S{exporting} });
 	before("${a}::_report_fatal",  sub { push @TRACE, $S{fatal} });
 	return;
+}
+
+# A logger that keeps the info messages, to check what was logged
+{
+	package Local::Recorder;
+	sub new { return bless { info => [] }, shift }
+	sub info { push @{ $_[0]{info} }, $_[1]; return }
+	sub debug { return }
+	sub warn { return }
 }
 
 # Run an exporter; returns (status or undef, error, stdout, stderr)
@@ -156,22 +169,22 @@ subtest 'State: PARSING -> Trigger: bad option / missing value / not one databas
 	}
 };
 
-subtest 'State: PARSING -> Trigger: options OK -> State: OPENING LOG -> Trigger: log writable -> State: EXPORTING -> return 0' => sub {
+subtest 'State: PARSING -> CHECKING SETTINGS -> Trigger: valid -> State: OPENING LOG -> Trigger: log writable -> State: EXPORTING -> return 0' => sub {
 	my ($dir, $db) = new_database('T');
 	trace_app();
 	my ($status) = cli('--log', "$dir/x.log", '--output-dir', "$dir/out", $db);
 	verbose_diag('trace', \@TRACE);
-	is_deeply(\@TRACE, [$S{parsing}, $S{open_log}, $S{exporting}], 'path');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{open_log}, $S{exporting}], 'path');
 	is($status, $CONFIG{exit_ok}, 'all tables OK: return 0');
 	ok(-e "$dir/x.log", 'log opened');
 	restore_all();
 };
 
-subtest 'State: PARSING -> Trigger: --no-log -> (OPENING LOG skipped) -> State: EXPORTING' => sub {
+subtest 'State: CHECKING SETTINGS -> Trigger: --no-log -> (OPENING LOG skipped) -> State: EXPORTING' => sub {
 	my ($dir, $db) = new_database('T');
 	trace_app();
 	my ($status) = cli('--no-log', '--dry-run', $db);
-	is_deeply(\@TRACE, [$S{parsing}, $S{exporting}], 'OPENING LOG skipped');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{exporting}], 'OPENING LOG skipped');
 	is($status, $CONFIG{exit_ok}, 'dry run: return 0');
 	restore_all();
 };
@@ -180,7 +193,7 @@ subtest 'State: EXPORTING -> Trigger: some table failed -> return 1' => sub {
 	my ($dir, $db) = new_database('T', 'Broken');
 	trace_app();
 	my ($status) = cli('--no-log', '--no-progress', '--output-dir', "$dir/out", $db);
-	is_deeply(\@TRACE, [$S{parsing}, $S{exporting}], 'path');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{exporting}], 'path');
 	is($status, $CONFIG{exit_failure}, 'return 1');
 	restore_all();
 };
@@ -189,7 +202,7 @@ subtest 'State: OPENING LOG -> Trigger: log cannot be opened -> State: FATAL -> 
 	my ($dir, $db) = new_database('T');
 	trace_app();
 	my ($status, undef, $stderr) = cli('--log', "$dir/no/such/x.log", $db);
-	is_deeply(\@TRACE, [$S{parsing}, $S{open_log}, $S{fatal}], 'path (EXPORTING never entered)');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{open_log}, $S{fatal}], 'path (EXPORTING never entered)');
 	is($status, $CONFIG{exit_fatal}, 'return 3');
 	like($stderr, qr/\Aaccess2csv: /, 'action - "access2csv: <reason>" to STDERR');
 	restore_all();
@@ -199,21 +212,51 @@ subtest 'State: EXPORTING -> Trigger: fatal error -> State: FATAL -> return 3' =
 	my ($dir) = new_database('T');
 	trace_app();
 	my ($status) = cli('--no-log', "$dir/missing.accdb");
-	is_deeply(\@TRACE, [$S{parsing}, $S{exporting}, $S{fatal}], 'path');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{exporting}, $S{fatal}], 'path');
 	is($status, $CONFIG{exit_fatal}, 'return 3');
 	restore_all();
 };
 
-subtest 'Discrepancy: invalid option value fails after OPENING LOG, not in Exporter->run' => sub {
+subtest 'State: CHECKING SETTINGS -> Trigger: invalid value -> State: FATAL (nothing created)' => sub {
+	# Settings are checked before anything with a side effect: no copy of
+	# standard input is made and no log file is created
 	my ($dir, $db) = new_database('T');
 	trace_app();
-	my ($status) = cli('--log', "$dir/x.log", '--encoding', 'latin1', $db);
+	my ($status, undef, $stderr) = cli('--log', "$dir/x.log", '--encoding', 'latin1', $db);
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{fatal}], 'path: straight to FATAL');
 	is($status, $CONFIG{exit_fatal}, 'return 3');
-	TODO: {
-		local $TODO = 'FSM Discrepancy: Exporter->new fails after the log file is created; the diagram attributes fatal errors to Exporter->run';
-		is_deeply(\@TRACE, [$S{parsing}, $S{open_log}, $S{exporting}, $S{fatal}], 'diagram path via EXPORTING');
-	}
-	is_deeply(\@TRACE, [$S{parsing}, $S{open_log}, $S{fatal}], 'actual path: OPENING LOG -> FATAL');
+	like($stderr, qr/\Aaccess2csv: .*'encoding'/, 'says why');
+	ok(!-e "$dir/x.log", 'the log file was never created');
+	restore_all();
+};
+
+# with_stdin($source, @argv): run the program with STDIN read from $source
+sub with_stdin {
+	my ($source, @argv) = @_;
+	open my $saved, '<&', \*STDIN or die $!;
+	open STDIN, '<', $source or die "$source: $!";
+	my @result = cli(@argv);
+	open STDIN, '<&', $saved or die $!;
+	return @result;
+}
+
+subtest 'State: CHECKING SETTINGS -> Trigger: "-" -> State: READING STDIN -> OPENING LOG -> EXPORTING' => sub {
+	my ($dir, $db) = new_database('T');
+	trace_app();
+	my ($status) = with_stdin($db, '--log', "$dir/x.log", '--output-dir', "$dir/out", '-');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{stdin}, $S{open_log}, $S{exporting}], 'path');
+	is($status, $CONFIG{exit_ok}, 'return 0');
+	ok(-e "$dir/out/T.csv", 'exported from the piped copy');
+	restore_all();
+};
+
+subtest 'State: READING STDIN -> Trigger: empty input -> State: FATAL (log never opened)' => sub {
+	my ($dir) = new_database('T');
+	trace_app();
+	my ($status, undef, $stderr) = with_stdin(File::Spec->devnull(), '--log', "$dir/x.log", '-');
+	is_deeply(\@TRACE, [$S{parsing}, $S{settings}, $S{stdin}, $S{fatal}], 'path');
+	is($status, $CONFIG{exit_fatal}, 'return 3');
+	ok(!-e "$dir/x.log", 'the log file was never created');
 	restore_all();
 };
 
@@ -328,7 +371,7 @@ subtest 'State: PREPARING -> Trigger: mkdir fails -> State: FATAL' => sub {
 };
 
 #######################################################################
-# Discrepancies between the code and the Exporter diagram
+# Row counts and empty selections
 #######################################################################
 
 # A run3 double that makes mdb-count fail and passes everything else on
@@ -343,40 +386,58 @@ sub failing_count {
 	});
 }
 
-subtest 'Discrepancy: EXPORTING success (file written) -> count fails -> reported as failure' => sub {
+subtest 'State: EXPORTING -> Trigger: success, then row count fails -> warning only -> SUMMARY -> return 0' => sub {
+	# The file is in place, so the success edge has been taken; a count
+	# is an optional extra and cannot turn it into a failure
 	my ($dir, $db) = new_database('A');
 	my $guard = failing_count();
-	my ($status, undef, undef, $stderr) = run_exporter($CONFIG{exporter}->new(output_dir => "$dir/out", progress => 0, show_counts => 1), $db);
-	ok(-e "$dir/out/A.csv", 'the file was written (success edge taken)');
-	TODO: {
-		local $TODO = 'FSM Discrepancy: a failed row count after the file is in place turns success into failure';
-		is($status, $CONFIG{exit_ok}, 'diagram: a written table is a success');
-		unlike($stderr, qr/FAILED: A/, 'diagram: not reported as failed');
-	}
+	my $logger = Local::Recorder->new();
+	trace_exporter();
+	my ($status, undef, undef, $stderr) = run_exporter($CONFIG{exporter}->new(output_dir => "$dir/out", progress => 0, show_counts => 1, logger => $logger), $db);
+	is_deeply(\@TRACE, [$S{checking}, $S{listing}, $S{preparing}, $S{table}, $S{summary}], 'path');
+	is($status, $CONFIG{exit_ok}, 'return 0');
+	ok(-e "$dir/out/A.csv", 'the file is in place');
+	like($stderr, qr/^Cannot count the rows of A: mdb-count failed/m, 'action - warning');
+	unlike($stderr, qr/FAILED/, 'not reported as a failed table');
+	ok((grep { /\AExported A => .*A\.csv\z/ } @{ $logger->{info} }), 'logged as exported, without a count');
+	ok((grep { /\AProcessed 1 table, 0 failed\z/ } @{ $logger->{info} }), 'summary: no failures');
+	restore_all();
 };
 
-subtest 'Discrepancy: DRY RUN -> count fails -> FATAL (diagram: DRY RUN only returns 0)' => sub {
+subtest 'State: DRY RUN -> Trigger: row count fails -> warning, "?" shown -> return 0' => sub {
 	my ($dir, $db) = new_database('A');
 	my $guard = failing_count();
-	my ($status, $error) = run_exporter($CONFIG{exporter}->new(progress => 0, show_counts => 1, dry_run => 1), $db);
-	TODO: {
-		local $TODO = 'FSM Discrepancy: DRY RUN can end in FATAL when mdb-count fails';
-		is($status, $CONFIG{exit_ok}, 'diagram: DRY RUN returns 0');
-	}
-	like($error, qr/mdb-count failed/, 'actual: croaks');
+	trace_exporter();
+	my ($status, $error, $stdout, $stderr) = run_exporter($CONFIG{exporter}->new(progress => 0, show_counts => 1, dry_run => 1), $db);
+	is_deeply(\@TRACE, [$S{checking}, $S{listing}, $S{dry_run}], 'path');
+	is($status, $CONFIG{exit_ok}, 'return 0');
+	is($error, '', 'no exception');
+	like($stdout, qr/^A\s+\?\s+A\.csv$/m, 'count shown as "?"');
+	like($stderr, qr/^Cannot count the rows of A: /m, 'action - warning');
+	restore_all();
 };
 
-subtest 'Discrepancy: PREPARING -> (no tables) -> SUMMARY, skipping EXPORTING' => sub {
+subtest 'State: LISTING -> Trigger: no tables selected -> State: SUMMARY (no PREPARING) -> return 0' => sub {
+	# Nothing to export: no output folder is made, and the summary says so
 	my ($dir, $db) = new_database('A');
-	my $e = $CONFIG{exporter}->new(output_dir => "$dir/out", progress => 0, tables => [], logger => bless({}, 'Local::Quiet'));
+	my $logger = Local::Recorder->new();
+	my $e = $CONFIG{exporter}->new(output_dir => "$dir/out", progress => 0, tables => [], logger => $logger);
 	trace_exporter();
 	my ($status) = run_exporter($e, $db);
+	is_deeply(\@TRACE, [$S{checking}, $S{listing}, $S{summary}], 'path: LISTING -> SUMMARY');
 	is($status, $CONFIG{exit_ok}, 'return 0');
-	TODO: {
-		local $TODO = 'FSM Discrepancy: the diagram has no PREPARING -> SUMMARY edge (empty table list)';
-		ok((grep { $_ eq $S{table} } @TRACE), 'diagram: PREPARING always leads to EXPORTING');
-	}
-	is_deeply(\@TRACE, [$S{checking}, $S{listing}, $S{preparing}, $S{summary}], 'actual path');
+	ok(!-e "$dir/out", 'no output folder made');
+	ok((grep { /\AProcessed 0 tables, 0 failed\z/ } @{ $logger->{info} }), 'action - summary logged');
+	restore_all();
+};
+
+subtest 'State: LISTING -> Trigger: only unknown names selected -> SUMMARY, with a warning' => sub {
+	my ($dir, $db) = new_database('A');
+	trace_exporter();
+	my ($status, undef, undef, $stderr) = run_exporter($CONFIG{exporter}->new(output_dir => "$dir/out", progress => 0, tables => ['Nope']), $db);
+	is_deeply(\@TRACE, [$S{checking}, $S{listing}, $S{summary}], 'path');
+	like($stderr, qr/Table not found in database: Nope/, 'action - warning');
+	ok(!-e "$dir/out", 'no output folder made');
 	restore_all();
 };
 

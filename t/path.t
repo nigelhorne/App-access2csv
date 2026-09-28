@@ -16,9 +16,10 @@
 #	_export_all        0..n            _export_transcoded 0..n
 #	_csv_filename      0..n            _dry_run           0..n
 #
-# Dead code: in Exporter::run, Params::Get either dies or returns a hash
-# reference, so the "not a hash" side of the ref() test there is never
-# taken.  It is marked with a TODO in the module and proved below.
+# Dead code: Exporter::run used to test whether Params::Get had returned
+# a hash reference.  It always does (or dies), so that test could never
+# fail; it has been removed, and the proof that this is safe is kept
+# below (DEAD1).
 
 use strict;
 use warnings;
@@ -116,6 +117,7 @@ my %PATHS = (
 	R4 => 'dry run exit',
 	R5 => 'export, no failures -> 0',
 	R6 => 'export, failures -> 1',
+	R7 => 'nothing selected -> no output folder, straight to the summary',
 	# _check_database
 	D1 => 'does not exist', D2 => 'not a regular file', D3 => 'not readable', D4 => 'accepted',
 	# _verify_dependencies
@@ -144,6 +146,7 @@ my %PATHS = (
 	X1 => 'exists, no overwrite -> croak before any work',
 	X2 => 'utf8', X3 => 'utf8-bom', X4 => 'utf8-bom, flush fails -> croak',
 	X5 => 'cp1252 -> transcoder', X6 => 'row count logged', X7 => 'plain log',
+	X8 => 'row count fails after the file is in place -> warning, still exported',
 	# _export_transcoded
 	Y1 => 'loop 0 times (no output)', Y2 => 'lines converted',
 	Y3 => 'invalid UTF-8 -> croak', Y4 => 'unmappable -> croak',
@@ -158,6 +161,9 @@ my %PATHS = (
 	CF4 => 'collision loop 0 times', CF5 => 'collision loop 1 time', CF6 => 'collision loop many times',
 	# _dry_run
 	DR1 => 'no counts, loop 0 times', DR2 => 'counts, loop many times',
+	DR3 => 'a count fails -> "?" and a warning',
+	# _try_count_rows
+	TC1 => 'count returned', TC2 => 'count fails -> warning, undef', TC3 => 'interrupted -> passed on',
 	W1 => '_warn',
 	# _log
 	LG1 => 'no logger -> early return', LG2 => 'logged', LG3 => 'logger dies -> warned, dropped',
@@ -166,6 +172,8 @@ my %PATHS = (
 
 	# App::run
 	AR1 => 'option parsing decides', AR2 => 'export status returned', AR3 => 'exception -> fatal report',
+	AR4 => 'invalid settings -> fatal before standard input or the log is touched',
+	AR5 => '"-" -> standard input copied, the copy exported',
 	# _parse_options
 	PO1 => 'parse fails', PO2 => 'help', PO3 => 'wrong database count', PO4 => 'go ahead',
 	# _usage
@@ -176,7 +184,7 @@ my %PATHS = (
 	RF1 => 'no error text', RF2 => 'location removed', RF3 => 'verbose keeps location',
 
 	# Dead-code proof
-	DEAD1 => 'Exporter::run: Params::Get never returns a non-hash',
+	DEAD1 => 'Exporter::run: Params::Get never returns a non-hash, so no ref() test is needed',
 );
 
 my %taken;
@@ -296,12 +304,14 @@ subtest 'new paths' => sub {
 
 subtest 'run paths' => sub {
 	my $status = 0;
+	my $tables = ['T'];
+	my $made = 0;
 	my $guard = mock_scoped($CONFIG{exporter},
 		_check_database      => sub { die "bad db\n" if $_[1] eq 'bad'; $_[0] },
 		_verify_dependencies => sub { $_[0] },
-		_get_tables          => sub { ['T'] },
+		_get_tables          => sub { $tables },
 		_dry_run             => sub { $_[0] },
-		_make_output_dir     => sub { $_[0] },
+		_make_output_dir     => sub { $made++; $_[0] },
 		_export_all          => sub { $status },
 	);
 	throws_ok { exporter()->run() } qr/\AUsage: /, 'R1'; took('R1');
@@ -311,6 +321,9 @@ subtest 'run paths' => sub {
 	is(exporter()->run('db'), $CONFIG{exit_ok}, 'R5'); took('R5');
 	$status = 2;
 	is(exporter()->run('db'), $CONFIG{exit_failure}, 'R6'); took('R6');
+	($status, $tables, $made) = (0, [], 0);
+	is(exporter()->run('db'), $CONFIG{exit_ok}, 'R7: status');
+	is($made, 0, 'R7: no output folder made'); took('R7');
 };
 
 subtest 'dead code: Params::Get never returns anything but a hash' => sub {
@@ -437,6 +450,7 @@ subtest '_export_table paths' => sub {
 	my $dir = tempdir(CLEANUP => 1);
 	my (@ran, %installed, @logged, @transcoded);
 	my $flush_ok = 1;
+	my $count_fails = 0;
 	my $real_flush = \&IO::Handle::flush;
 	my $guard = mock_scoped(
 		"$CONFIG{exporter}::_run_program" => sub { push @ran, 1; print { $_[3] } "d\n"; $_[3]->flush(); $_[0] },
@@ -447,7 +461,7 @@ subtest '_export_table paths' => sub {
 			%installed = (content => scalar(<$fh>));
 			return $_[0];
 		},
-		"$CONFIG{exporter}::_count_rows" => sub { $CONFIG{rows} },
+		"$CONFIG{exporter}::_count_rows" => sub { die "count broke\n" if $count_fails; $CONFIG{rows} },
 		"$CONFIG{exporter}::_log" => sub { shift; push @logged, $_[1]; $_[0] },
 		'IO::Handle::flush' => sub {
 			return $real_flush->(@_) if $flush_ok || !$_[0]->isa('File::Temp');
@@ -477,6 +491,11 @@ subtest '_export_table paths' => sub {
 
 	exporter(output_dir => $dir, overwrite => 1, show_counts => 1)->_export_table('db', 'T');
 	is($logged[-1], 'exported_rows', 'X6'); took('X6');
+
+	$count_fails = 1;
+	my $stderr = capture_stderr { exporter(output_dir => $dir, overwrite => 1, show_counts => 1)->_export_table('db', 'T') };
+	is($logged[-1], 'exported', 'X8: logged as exported, without a count');
+	like($stderr, qr/Cannot count the rows of T: count broke/, 'X8: warning'); took('X8');
 };
 
 subtest '_export_transcoded paths' => sub {
@@ -548,6 +567,32 @@ subtest '_dry_run paths' => sub {
 	unlike($stdout, qr/ROWS|\.csv/, 'DR1: no counts, 0 iterations'); took('DR1');
 	$stdout = capture_stdout { exporter(show_counts => 1)->_dry_run('db', ['A', 'B']) };
 	is(scalar(() = $stdout =~ /^\w\s+$CONFIG{rows}\s+\w\.csv$/mg), 2, 'DR2: counts, 2 iterations'); took('DR2');
+	restore_all();
+
+	my $failing = mock_scoped("$CONFIG{exporter}::_count_rows" => sub { die "count broke\n" });
+	my $stderr;
+	($stdout, $stderr) = capture { exporter(show_counts => 1)->_dry_run('db', ['A']) };
+	like($stdout, qr/^A\s+\?\s+A\.csv$/m, 'DR3: "?" shown');
+	like($stderr, qr/Cannot count the rows of A/, 'DR3: warning'); took('DR3');
+};
+
+subtest '_try_count_rows paths' => sub {
+	my $behaviour = 'ok';
+	my $guard = mock_scoped("$CONFIG{exporter}::_count_rows" => sub {
+		die "count broke\n" if $behaviour eq 'fail';
+		if($behaviour eq 'interrupt') { $_[0]{interrupted} = 'INT'; die "Interrupted\n" }
+		return $CONFIG{rows};
+	});
+	is(exporter()->_try_count_rows('db', 'T'), $CONFIG{rows}, 'TC1'); took('TC1');
+
+	$behaviour = 'fail';
+	my $got = 'not called';
+	my $stderr = capture_stderr { $got = exporter()->_try_count_rows('db', 'T') };
+	is($got, undef, 'TC2: undef');
+	like($stderr, qr/Cannot count the rows of T: count broke/, 'TC2: warning'); took('TC2');
+
+	$behaviour = 'interrupt';
+	throws_ok { exporter()->_try_count_rows('db', 'T') } qr/\AInterrupted/, 'TC3'; took('TC3');
 };
 
 subtest '_warn, _log, _os_error paths' => sub {
@@ -582,12 +627,16 @@ subtest 'App::run paths' => sub {
 	my ($parse, $die) = (undef, 0);
 	{
 		package Local::FakeExporter;
-		sub new { my ($class, %a) = @_; bless {%a}, $class }
-		sub run { $CONFIG{exit_failure} }
+		sub new { my ($class, %a) = @_; die "bad encoding\n" if ($a{encoding} // '') eq 'latin1'; bless {%a}, $class }
+		sub run { $Local::FakeExporter::ran = $_[1]; $CONFIG{exit_failure} }
+		package Local::FakeCopy;
+		sub filename { '/tmp/copy-of-stdin' }
 	}
+	my (%opened, $read);
 	my $guard = mock_scoped(
-		"$CONFIG{app}::_parse_options" => sub { $parse },
-		"$CONFIG{app}::_make_logger"   => sub { die "no log\n" if $die; return },
+		"$CONFIG{app}::_parse_options" => sub { my (undef, undef, $opt) = @_; $opt->{encoding} = $parse->{encoding} if ref $parse; ref($parse) ? undef : $parse },
+		"$CONFIG{app}::_make_logger"   => sub { $opened{log}++; die "no log\n" if $die; return },
+		"$CONFIG{app}::_read_stdin"    => sub { $read++; bless {}, 'Local::FakeCopy' },
 		"$CONFIG{app}::_report_fatal"  => sub { $CONFIG{exit_fatal} },
 		"$CONFIG{exporter}::new"       => sub { shift; Local::FakeExporter->new(@_) },
 	);
@@ -597,6 +646,19 @@ subtest 'App::run paths' => sub {
 	is($CONFIG{app}->run('db'), $CONFIG{exit_failure}, 'AR2'); took('AR2');
 	$die = 1;
 	is($CONFIG{app}->run('db'), $CONFIG{exit_fatal}, 'AR3'); took('AR3');
+
+	# Separate assignments: a hash in a list assignment would swallow the
+	# values meant for the variables after it
+	$die = 0;
+	%opened = ();
+	$read = 0;
+	$parse = { encoding => 'latin1' };
+	is($CONFIG{app}->run('-'), $CONFIG{exit_fatal}, 'AR4: fatal');
+	ok(!$opened{log} && !$read, 'AR4: neither the log nor standard input touched'); took('AR4');
+
+	$parse = undef;
+	is($CONFIG{app}->run('-'), $CONFIG{exit_failure}, 'AR5: exported');
+	is($Local::FakeExporter::ran, '/tmp/copy-of-stdin', 'AR5: the copy was exported'); took('AR5');
 };
 
 subtest '_parse_options paths' => sub {

@@ -248,8 +248,8 @@ subtest 'Phase: the commit itself fails -> rollback' => sub {
 
 subtest 'Phase: after the commit -> a later failure cannot un-commit' => sub {
 	# Row counting runs after the rename.  If it fails, the committed file
-	# must still be complete and correct (see the FSM discrepancy flagged
-	# in the code about how this is reported).
+	# must still be complete and correct, and the table still counts as
+	# exported: a row count is an optional extra (a warning, not a failure)
 	my $dir = tempdir(CLEANUP => 1);
 	my $db = make_database($dir, 'Orders');
 	my $real = \&App::Access2CSV::Exporter::run3;
@@ -262,6 +262,8 @@ subtest 'Phase: after the commit -> a later failure cannot un-commit' => sub {
 	my $result = export(db => $db, output_dir => "$dir/out", show_counts => 1);
 	is(slurp("$dir/out/Orders.csv"), qq{"id","name"\n1,"Orders"\n}, 'committed file complete and correct');
 	is_deeply(temp_files("$dir/out"), [], 'no temporary file');
+	is($result->{status}, $CONFIG{exit_ok}, 'the table still counts as exported');
+	like($result->{stderr}, qr/Cannot count the rows of Orders/, 'the count failure is a warning');
 };
 
 #######################################################################

@@ -35,7 +35,9 @@ use Time::HiRes qw(sleep);
 use lib File::Spec->catdir($Bin, 'lib');
 use FakeMDB qw(install_fake_mdbtools make_database);
 
-use_ok('App::Access2CSV');
+# At compile time (in BEGIN), like t/00-load.t: loading it later is too
+# late for the CHECK blocks of Sub::Private/Sub::Protected
+BEGIN { use_ok('App::Access2CSV') }
 
 Readonly::Hash my %CONFIG => (
 	exit_ok      => 0,

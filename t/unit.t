@@ -99,6 +99,7 @@ my %LEDGER = map { $_ => 1 } (
 	'run: Cannot create output directory',
 	'run: Tables not found in database',
 	'run: mdb-count not found in PATH',
+	'run: Cannot count the rows of',
 	'run: FAILED',
 	'run: Output file already exists',
 	'run: mdb-export failed with exit status',
@@ -566,6 +567,30 @@ subtest 'run: dry run and row counts' => sub {
 	ticked('run: mdb-count not found in PATH');
 	unlike($stdout, qr/ROWS/, 'no ROWS column');
 	is($e->{show_counts}, 0, 'setting switched off, as documented');
+};
+
+subtest 'run: a row count that fails is only a warning' => sub {
+	# POD: a failed count warns; an exported table still counts as
+	# exported, and a dry run shows "?"
+	my ($dir, $db, $out) = workspace();
+	my $guard = mdbtools_scenario(tables => ['Orders']);
+	my $scenario = \&App::Access2CSV::Exporter::run3;
+	my $failing = mock_scoped("$CONFIG{exporter}::run3" => sub {
+		return $scenario->(@_) unless $_[0][0] =~ /mdb-count\z/;
+		${ $_[3] } = 'broken';
+		$? = 1 << 8;
+		return 1;
+	});
+	my ($status, undef, $stderr) = export($db, output_dir => $out, show_counts => 1);
+	is($status, $CONFIG{exit_ok}, 'export: still 0');
+	ok(-e "$out/Orders.csv", 'exported');
+	like($stderr, qr/^Cannot count the rows of Orders: mdb-count failed with exit status 1: broken at /m, 'warning');
+	ticked('run: Cannot count the rows of');
+
+	my $stdout;
+	($status, $stdout) = export($db, dry_run => 1, show_counts => 1);
+	is($status, $CONFIG{exit_ok}, 'dry run: still 0');
+	like($stdout, qr/^Orders\s+\?\s+Orders\.csv$/m, 'count shown as "?"');
 };
 
 subtest 'run: fatal errors croak before writing anything' => sub {

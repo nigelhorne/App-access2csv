@@ -556,22 +556,22 @@ sub run {
 	if(!defined $status) {
 		# Any croak from here on is a fatal error: report it, don't die
 		$status = eval {
-			# "-" means standard input.  mdbtools can only read a real file,
-			# so the data is copied to a private temporary file first; the
-			# copy is deleted when $piped goes out of scope, whatever happens
+			# CHECKING SETTINGS: refuse bad option values (e.g. --encoding
+			# latin1) before anything with a side effect happens - before
+			# standard input is copied and before the log file is created
+			my %settings = map { $_ => $opt{$_} } grep { $_ ne 'log' } keys %opt;
+			App::Access2CSV::Exporter->new(%settings);
+
+			# READING STDIN: "-" means standard input.  mdbtools can only
+			# read a real file, so the data is copied to a private temporary
+			# file first; the copy is deleted when $piped goes out of scope,
+			# whatever happens
 			my $piped = ($argv[0] eq $STDIN_NAME) ? $class->_read_stdin() : undef;
 			my $database = $piped ? $piped->filename() : $argv[0];
 
+			# OPENING LOG, then EXPORTING
 			my $logger = $class->_make_logger(\%opt);
-			# TODO: FSM Discrepancy - invalid option values (e.g. --encoding
-			# latin1) croak here, in Exporter->new, after OPENING LOG has
-			# already created the log file.  The diagram attributes fatal
-			# errors to "Exporter->run" only.
-			my $exporter = App::Access2CSV::Exporter->new(
-				map({ $_ => $opt{$_} } grep { $_ ne 'log' } keys %opt),
-				($logger ? (logger => $logger) : ()),
-			);
-			$exporter->run($database);
+			App::Access2CSV::Exporter->new(%settings, ($logger ? (logger => $logger) : ()))->run($database);
 		};
 		$status = $class->_report_fatal($@, $opt{verbose}) unless defined $status;
 	}
@@ -846,6 +846,7 @@ You do not need to read this section to use the program.
 	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
 	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧ head rest = "-" ∧
 	│   isTerminal(stdin) ⇒ status! = 2
+	│ ¬ valid(opts) ⇒ status! = 3 ∧ files' = files   -- checked first: no copy, no log
 	│ db = (if head rest = "-" then copy(stdin) else head rest)
 	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧
 	│   ¬ (head rest = "-" ∧ isTerminal(stdin)) ⇒
@@ -880,46 +881,46 @@ happens on the way.
 	              |    PARSING    |  read options into the settings
 	              +---------------+
 	               |      |      |
-	 bad option or |      |      | --help / --man
-	 missing value |      |      | action: print documentation to STDOUT
-	 or not exactly|      |      v
-	 one database  |      |   +--------+
-	 action: print |      |   |  HELP  |---> return 0
-	 usage to      |      |   +--------+
-	 STDERR        v      |
-	      +-------------+ | options OK, one database
-	      | USAGE ERROR | |
-	      +-------------+ v
-	          |   +------------------+
-	 return 2 <---|  OPENING LOG     |  skipped with --no-log
-	              +------------------+
-	               |               |
-	               | log is        | log cannot be opened
-	               | writable      | (croak)
-	               v               |
-	      +------------------+     |
-	      | EXPORTING        |     |
-	      | (Exporter->run,  |     |
-	      |  see its STATE   |     |
-	      |  DIAGRAM)        |     |
-	      +------------------+     |
-	       |      |      |         |
-	all    |      | some | fatal   |
-	tables |      | table| error   |
-	OK, or |      |failed| (croak) |
-	dry run|      |      v         v
-	       |      |   +------------------+
-	       |      |   |      FATAL       |  action: print "access2csv: <reason>"
-	       |      |   +------------------+          to STDERR
-	       v      v            |
-	  return 0  return 1   return 3
+	 bad option,   |      |      | --help / --man
+	 missing value,|      |      | action: print documentation to STDOUT
+	 not exactly   |      |      v
+	 one database, |      |   +--------+
+	 or "-" while  |      |   |  HELP  |---> return 0
+	 standard input|      |   +--------+
+	 is a terminal |      |
+	 action: print |      | options parsed, one database
+	 usage to      |      v
+	 STDERR        |   +--------------------+  invalid value, e.g.
+	               |   | CHECKING SETTINGS  |  --encoding latin1 (croak)
+	               |   +--------------------+-----------------------+
+	               v             | valid                             |
+	      +-------------+        v                                   |
+	      | USAGE ERROR |  +--------------------+  empty, unreadable, |
+	      +-------------+  |   READING STDIN    |  or interrupted     |
+	          |            | (only for "-")     |  (croak)            |
+	 return 2 <           +--------------------+---------------------+
+	                        | action: copy standard input to a        |
+	                        |   private temporary file                |
+	                        v                                         |
+	              +--------------------+  log cannot be opened        |
+	              |    OPENING LOG     |  (croak)                     |
+	              | (not with --no-log)|------------------------------+
+	              +--------------------+                              |
+	                        | log is writable                         |
+	                        v                                         |
+	              +--------------------+                              |
+	              | EXPORTING          |  fatal error (croak)         |
+	              | (Exporter->run,    |------------------------------+
+	              |  see its STATE     |                              |
+	              |  DIAGRAM)          |                              v
+	              +--------------------+                   +------------------+
+	                 |              |                      |      FATAL       |
+	   all tables OK,|              | some table           +------------------+
+	   or dry run    |              | failed               action: print
+	                 v              v                      "access2csv: <reason>"
+	             return 0       return 1                   to STDERR; return 3
 
-Not drawn above: when the database is C<->, there is one more state,
-READING STDIN, between PARSING and OPENING LOG.  Entry is refused (USAGE
-ERROR, return 2) if standard input is a terminal.  Its action: copy
-standard input to a private temporary file.  Empty or unreadable input,
-or an interruption, goes to FATAL (return 3).  The copy is deleted when
-the run ends, whichever way it ends.
+Whichever way the run ends, a copy made of standard input is deleted.
 
 =head1 AUTHOR
 
