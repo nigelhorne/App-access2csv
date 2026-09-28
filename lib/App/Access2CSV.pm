@@ -108,7 +108,9 @@ with C<MSys>, C<USys> or C<~>.  They are skipped.
 Each file has the name of its table plus C<.csv>, for example
 C<Orders.csv>.  Some characters are not allowed in file names on some
 computers (C<< < > : " / \ | ? * >> and control characters).  They are
-changed to C<_>.  Spaces and dots at the end, and spaces at the start,
+changed to C<_>, and so are invisible text-direction controls (such as
+U+202E, "right-to-left override"), which could make a file name look
+like something else.  Spaces and dots at the end, and spaces at the start,
 are removed.  A name such as C<CON> or C<NUL> (reserved on Windows) gets a
 C<_> in front.  An empty name becomes C<unnamed>.
 
@@ -356,6 +358,14 @@ they were.
 			description  => 'Command-line arguments, passed as a list',
 		},
 	}
+
+Valid and invalid values (tested in F<t/domain.t>):
+
+	database names  exactly 1; 0 or 2 or more give exit status 2
+	--encoding      utf8, utf8-bom or cp1252; anything else gives exit 3
+	--table         0 times (all tables), once, or many times; names
+	                may be non-ASCII
+	--log           a file name; '' means no log, like --no-log
 
 =head4 Output
 

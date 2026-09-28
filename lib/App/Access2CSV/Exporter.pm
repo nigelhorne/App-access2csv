@@ -54,6 +54,13 @@ Readonly::Scalar my $SYSTEM_TABLE_RE => qr/\A(?:MSys|USys|~)/i;
 # Characters that are illegal in a file name on at least one common OS
 Readonly::Scalar my $UNSAFE_CHARS_RE => qr/[<>:"\/\\|?*\x00-\x1F\x7F]/;
 
+# Invisible text-direction controls (LRM, RLM, LRE, RLE, PDF, LRO, RLO,
+# LRI, RLI, FSI, PDI).  They can make a file name display as something
+# else ("report<RLO>vsc.exe.csv"), so they are unsafe like other control
+# characters.  Matched both as Perl characters and as UTF-8 bytes, since
+# table names from mdbtools arrive as bytes.
+Readonly::Scalar my $BIDI_CONTROLS_RE => qr/[\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]|\xE2\x80[\x8E\x8F\xAA-\xAE]|\xE2\x81[\xA6-\xA9]/;
+
 # Device names Windows reserves whatever the extension (CON.csv is illegal)
 Readonly::Scalar my $RESERVED_NAME_RE => qr/\A(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])\z/i;
 
@@ -336,6 +343,27 @@ None.  Your C<$@>, C<$!> and C<$_> are left as they were.
 		language    => { type => 'string', optional => 1 },
 	}
 
+Valid and invalid values (tested in F<t/domain.t>):
+
+	output_dir  valid:   any path of 1 character or more ("0" is valid),
+	                     including non-ASCII names given as UTF-8 bytes
+	            invalid: "" (below the minimum), references
+	tables      valid:   undef (all tables), [] (no tables), one name,
+	                     many names; names are matched byte for byte
+	            invalid: anything but an array reference; elements
+	                     that are references
+	booleans    valid:   exactly 1 true TRUE yes on  /  0 false FALSE no off
+	(overwrite, invalid: everything else, e.g. "", 2, -1, "True", "Yes",
+	 verbose,            "0.0", " 1"
+	 dry_run, show_counts, progress)
+	encoding    valid:   exactly utf8, utf8-bom, cp1252
+	            invalid: other spellings (UTF8, utf-8, CP1252, " utf8")
+	logger      valid:   an object with debug, info and warn methods
+	            invalid: an object missing any of them, a plain hash,
+	                     a string
+	language    valid:   any string; "" means "use the environment"
+	            invalid: references
+
 =head4 Output
 
 	{
@@ -462,6 +490,33 @@ as they were (except that a croak sets C<$@> in your C<eval>, as usual).
 			optional => 0,
 		},
 	}
+
+Valid and invalid values (tested in F<t/domain.t>):
+
+	database    valid:   a readable regular file
+	            invalid: "" (below the 1-character minimum), undef,
+	                     a missing file, a folder, a device or FIFO,
+	                     an unreadable file
+	            edges:   each part of the path may be up to 255 bytes;
+	                     256 gives "File name too long"
+
+The table names that mdbtools reports are data, not arguments, but they
+have limits of their own:
+
+	length      a CSV file name is the table name plus ".csv", and file
+	            names are at most 255 bytes, so table names up to 251
+	            bytes work and longer ones fail (that table only).  The
+	            limit is in bytes: 125 u-umlauts (2 bytes each) fit,
+	            126 do not.  Access allows at most 64 characters.
+	characters  non-ASCII letters, emoji, joined emoji, combining marks
+	            and right-to-left text are kept byte for byte.
+	            Characters that are unsafe in file names - including
+	            invisible text-direction controls such as U+202E - are
+	            replaced by "_".
+	collisions  the first name has no suffix, then _2, _3, ... _10 ...
+	cp1252      U+00FF and the Euro sign convert; U+0100 and above
+	            (except the few Windows-1252 symbols), the C1 controls
+	            U+0080-U+009F and emoji make the table fail.
 
 =head4 Output
 
@@ -949,6 +1004,7 @@ sub _csv_filename :Protected {
 	# Replace characters that are illegal somewhere, then strip leading
 	# and trailing whitespace; Windows also silently drops trailing dots
 	$name =~ s/$UNSAFE_CHARS_RE/_/g;
+	$name =~ s/$BIDI_CONTROLS_RE/_/g;
 	$name =~ s/\A\s+//;
 	$name =~ s/[\s.]+\z//;
 

@@ -357,6 +357,28 @@ C<$_> are left as they were.
 		},
 	}
 
+Valid and invalid values (tested in F<t/domain.t>):
+
+	key      valid:   a key in the English catalog
+	         invalid: "" (1 character is the minimum), undef, a
+	                  reference, an unknown key (fatal: "Unknown message
+	                  key"), a known key with extra characters
+	count    valid:   whole numbers from 0 up (0 is the minimum; 2**53
+	                  works); undef means "no count"
+	         invalid: -1 and below, fractions (1.5), words
+	         edges:   English and German: 1 is singular, 0 and 2 plural.
+	                  French: 0 and 1 singular.  Japanese, Korean,
+	                  Chinese: always the "other" form
+	params   any number of values, including none; each value is
+	         copied into the text exactly, whether it is a Perl
+	         character string or UTF-8 bytes (non-ASCII letters,
+	         emoji, joined emoji, combining marks, right-to-left text)
+	context  any string; one the template does not have (including "")
+	         is ignored; a reference is invalid
+	language (from the environment) the first 2 or 3 letters, in any
+	         case; 1 letter, non-ASCII letters, C and POSIX all mean
+	         "no language"
+
 =head4 Output
 
 	{

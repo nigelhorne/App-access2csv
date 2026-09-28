@@ -1,4 +1,5 @@
 bin/access2csv
+cpanfile
 lib/App/Access2CSV.pm
 lib/App/Access2CSV/Exporter.pm
 lib/App/Access2CSV/I18N.pm
@@ -9,6 +10,7 @@ README.md
 t/00-load.t
 t/app.t
 t/data-flow.t
+t/domain.t
 t/edge_cases.t
 t/exporter.t
 t/filename-collision.t
