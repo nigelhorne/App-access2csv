@@ -4,7 +4,7 @@ use warnings;
 use ExtUtils::MakeMaker;
 
 WriteMakefile(
-	NAME         => 'App::Access2csv',
+	NAME         => 'App::Access2CSV',
 	VERSION_FROM => 'lib/App/Access2CSV.pm',
 	ABSTRACT_FROM => 'lib/App/Access2CSV.pm',
 	AUTHOR       => 'Nigel Horne <njh@nigelhorne.com>',
@@ -43,6 +43,7 @@ WriteMakefile(
 		'Test::Mockingbird' => 0.13,	# mock_scoped multi-method form
 		'Test::Most'   => 0,
 		'Test::Returns' => 0,
+		'Test::Without::Module' => 0,
 	},
 
 	LICENSE => 'gpl_2',
