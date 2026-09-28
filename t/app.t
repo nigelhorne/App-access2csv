@@ -118,12 +118,14 @@ subtest 'caller @ARGV is not modified' => sub {
 subtest 'bin/access2csv' => sub {
 	my $script = File::Spec->catfile($Bin, File::Spec->updir(), 'bin', 'access2csv');
 	my $lib = File::Spec->catdir($Bin, File::Spec->updir(), 'lib');
-	my ($stdout) = capture { system($^X, "-I$lib", $script, '--help') };
-	is($? >> 8, 0, 'exit status passed through');
+	# Standard error is shown if the status is wrong, so a failure (for
+	# example a module the child cannot load) says why
+	my ($stdout, $stderr) = capture { system($^X, "-I$lib", $script, '--help') };
+	is($? >> 8, 0, 'exit status passed through') or diag("child stderr: $stderr");
 	like($stdout, qr/--output-dir/, 'help printed');
 
-	capture { system($^X, "-I$lib", $script) };
-	is($? >> 8, 2, 'usage error status passed through');
+	(undef, $stderr) = capture { system($^X, "-I$lib", $script) };
+	is($? >> 8, 2, 'usage error status passed through') or diag("child stderr: $stderr");
 };
 
 done_testing();

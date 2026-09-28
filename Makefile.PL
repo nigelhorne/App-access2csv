@@ -3,6 +3,15 @@ use warnings;
 
 use ExtUtils::MakeMaker;
 
+my $dist = {
+	COMPRESS => 'gzip -9f',	# Compress tarball using gzip
+	SUFFIX => 'gz',	# File suffix for tarball
+};
+
+if($^O eq 'darwin') {
+	$dist->{'TAR'} = 'gtar';
+}
+
 WriteMakefile(
 	NAME         => 'App::Access2CSV',
 	VERSION_FROM => 'lib/App/Access2CSV.pm',
@@ -68,9 +77,12 @@ WriteMakefile(
 				type => 'git',
 				url  => 'git://github.com/nigelhorne/App-access2csv.git',
 				web  => 'https://github.com/nigelhorne/App-access2csv',
-			},
-			bugtracker => {
-				web => 'https://github.com/nigelhorne/App-access2csv/issues',
+			}, bugtracker => {
+				web => 'https://rt.cpan.org/Public/Dist/Display.html?Name=App-access2csv',
+				url => 'https://rt.cpan.org/Public/Dist/Display.html?Name=App-access2csv',
+				# web => 'https://github.com/nigelhorne/App-access2csv/issues',
+				# url => 'https://github.com/nigelhorne/App-access2csv/issues',
+				mailto => 'bug-App-access2csv@rt.cpan.org'
 			},
 		},
 		prereqs => {
@@ -81,4 +93,6 @@ WriteMakefile(
 			},
 		},
 	},
+	clean => { FILES => 'App-access2csv-*' },
+	dist => $dist,
 );

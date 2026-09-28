@@ -27,6 +27,42 @@ use File::Temp qw(tempdir);
 use Exporter qw(import);
 our @EXPORT_OK = qw(install_fake_mdbtools make_database);
 
+# Windows: the stand-ins are Perl scripts with a .cmd file beside each,
+# so that File::Which finds them (through PATHEXT).  But IPC::Run3 starts
+# programs with CreateProcess, which can only run real executables, not
+# .cmd files; and going through cmd.exe instead would let it interpret
+# "&", "|" and "%" in table names.  So, on Windows only, run3 is wrapped:
+# a call to a stand-in "X.cmd" becomes "perl X.pl ..." - still a direct
+# list-form call, with no shell.  Real mdbtools on Windows are .exe files
+# and are not affected.  Both IPC::Run3's run3 and the copy the Exporter
+# imported are wrapped, whichever was loaded first.
+_redirect_stand_ins() if $^O eq 'MSWin32';
+
+sub _redirect_stand_ins {
+	require IPC::Run3;
+	my %wrapped;
+	my $wrap = sub {
+		my $name = shift;
+		no strict 'refs';
+		my $original = defined(&{$name}) ? \&{$name} : return;
+		return if $wrapped{$original};
+		my $wrapper = sub {
+			my ($cmd, @rest) = @_;
+			if(ref($cmd) eq 'ARRAY' && $cmd->[0] =~ /\A(.+)\.cmd\z/i && -f "$1.pl") {
+				$cmd = [$^X, "$1.pl", @{$cmd}[1 .. $#{$cmd}]];
+			}
+			return $original->($cmd, @rest);
+		};
+		$wrapped{$wrapper} = 1;
+		no warnings 'redefine';
+		*{$name} = $wrapper;
+		return;
+	};
+	$wrap->('IPC::Run3::run3');
+	$wrap->('App::Access2CSV::Exporter::run3');
+	return;
+}
+
 # Shared prologue of every fake program.  It parses the command line the
 # way the real mdbtools (glib's option parser) does: options are
 # recognised anywhere, not only before the file name, until a "--" ends
