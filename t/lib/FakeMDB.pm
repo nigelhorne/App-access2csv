@@ -12,6 +12,7 @@ package FakeMDB;
 #   Unicode  - UTF-8 text that cp1252 can represent ("Cafe" with e-acute, Euro)
 #   Japanese - UTF-8 text that cp1252 cannot represent
 #   Latin1   - bytes that are not valid UTF-8
+#   Truncated - output that stops in the middle of a UTF-8 character
 #   anything else - a two-line CSV naming the table
 
 use strict;
@@ -24,21 +25,47 @@ use File::Temp qw(tempdir);
 use Exporter qw(import);
 our @EXPORT_OK = qw(install_fake_mdbtools make_database);
 
+# Shared prologue of every fake program.  It parses the command line the
+# way the real mdbtools (glib's option parser) does: options are
+# recognised anywhere, not only before the file name, until a "--" ends
+# them.  An unknown option is an error, as in mdbtools.  If
+# FAKE_MDB_ARGV_LOG is set, each program appends its argv there, one
+# argument per line, followed by an empty line.
+my $PROLOGUE = <<'PERL';
+my %known = map { $_ => 1 } @KNOWN;
+my (@positional, %options, $ended);
+if(my $log = $ENV{FAKE_MDB_ARGV_LOG}) {
+	open my $lfh, '>>', $log or die "$log: $!";
+	print {$lfh} map({ "$_\n" } $0 =~ m{([^/]+)\z}, @ARGV), "\n";
+	close $lfh;
+}
+foreach my $arg (@ARGV) {
+	if(!$ended && $arg eq '--') { $ended = 1; next }
+	if(!$ended && $arg =~ /\A-./) {
+		if(!$known{$arg}) { print STDERR "option parsing failed: Unknown option $arg\n"; exit 1 }
+		$options{$arg} = 1;
+		next;
+	}
+	push @positional, $arg;
+}
+PERL
+
 # Program bodies; each is run by the perl that runs the tests
 my %SCRIPTS = (
-	'mdb-tables' => <<'PERL',
-my ($flag, $db) = @ARGV;
+	'mdb-tables' => [['-1'], <<'PERL'],
+my ($db) = @positional;
 open my $fh, '<:raw', $db or do { print STDERR "cannot open $db\n"; exit 1 };
 my @lines = <$fh>;
 if(@lines && $lines[0] =~ /^FAIL/) { print STDERR "not an Access database\n"; exit 2 }
 binmode STDOUT;
 print @lines;
 PERL
-	'mdb-export' => <<'PERL',
-my ($db, $table) = @ARGV;
+	'mdb-export' => [[], <<'PERL'],
+my ($db, $table) = @positional;
 binmode STDOUT;
 if($table eq 'Broken') { print STDERR "corrupt table\n"; exit 1 }
 if($table eq 'Killed') { kill 'TERM', $$; sleep 5; exit 0 }
+if($table eq 'Truncated') { print "\"id\"\n\"Caf\xC3"; exit 0 }
 my %body = (
 	Unicode  => "Caf\xC3\xA9 \xE2\x82\xAC",
 	Japanese => "\xE6\x97\xA5\xE6\x9C\xAC",
@@ -47,7 +74,7 @@ my %body = (
 my $value = exists $body{$table} ? $body{$table} : $table;
 print "\"id\",\"name\"\n1,\"$value\"\n";
 PERL
-	'mdb-count' => <<'PERL',
+	'mdb-count' => [[], <<'PERL'],
 print "1\n";
 PERL
 );
@@ -62,7 +89,8 @@ sub install_fake_mdbtools {
 	foreach my $program (@programs) {
 		my $path = File::Spec->catfile($dir, $program);
 		open my $fh, '>', $path;
-		print {$fh} "#!$^X\nuse strict;\nuse warnings;\n$SCRIPTS{$program}";
+		my ($known, $body) = @{ $SCRIPTS{$program} };
+		print {$fh} "#!$^X\nuse strict;\nuse warnings;\nmy \@KNOWN = qw(@{$known});\n$PROLOGUE$body";
 		close $fh;
 		chmod 0755, $path;
 	}

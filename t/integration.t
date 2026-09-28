@@ -222,10 +222,10 @@ subtest 'interactions: external routines are called with the right arguments' =>
 	my @commands = map { my (undef, $cmd, $stdin) = @{$_}; [(File::Spec->splitpath($cmd->[0]))[2], @{$cmd}[1 .. $#{$cmd}], ${$stdin}] } $run3->();
 	verbose_diag('run3 commands', \@commands);
 	is_deeply(\@commands, [
-		['mdb-tables', '-1', $db, undef],
-		['mdb-export', $db, 'Orders', undef],
-		['mdb-count', $db, 'Orders', undef],
-	], 'each program run once, as a list, with no input');
+		['mdb-tables', '-1', '--', $db, undef],
+		['mdb-export', '--', $db, 'Orders', undef],
+		['mdb-count', '--', $db, 'Orders', undef],
+	], 'each program run once, as a list, options ended by --, with no input');
 
 	my ($created) = $logger->();
 	my (undef, undef, %args) = @{$created};

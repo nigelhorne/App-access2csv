@@ -68,7 +68,9 @@ our %MESSAGES = (
 		},
 		fatal              => 'access2csv: %s',
 		invalid_utf8       => 'Table %s, line %d: output of mdb-export is not valid UTF-8',
+		log_failed         => 'Cannot write to the log: %s',
 		log_open_failed    => 'Cannot open log file %s: %s',
+		logger_unavailable => 'no logger was created',
 		missing_database   => 'Missing database filename',
 		mkdir_failed       => 'Cannot create output directory %s: %s',
 		no_row_counter     => 'mdb-count not found in PATH; row counts are unavailable',
@@ -76,6 +78,7 @@ our %MESSAGES = (
 		program_failed     => '%s failed with exit status %d: %s',
 		program_found      => 'Found %s at %s',
 		program_missing    => 'Required program not found in PATH: %s',
+		program_not_run    => '%s could not be run: %s',
 		program_signalled  => '%s was killed by signal %d',
 		progress           => '[%d/%d] %s',
 		summary            => {

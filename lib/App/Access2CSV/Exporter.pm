@@ -61,6 +61,11 @@ Readonly::Scalar my $RESERVED_NAME_RE => qr/\A(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-
 Readonly::Scalar my $UNNAMED      => 'unnamed';
 Readonly::Scalar my $CSV_SUFFIX   => '.csv';
 
+# Ends option parsing in mdbtools, so a table or database name that
+# starts with "-" is never taken for an option (glib parses options
+# anywhere on the command line, not only before the file name)
+Readonly::Scalar my $END_OF_OPTIONS => '--';
+
 # Temporary files are hidden and live next to the target for atomic rename
 Readonly::Scalar my $TEMP_TEMPLATE => '.access2csv-XXXXXX';
 
@@ -164,6 +169,17 @@ permissions (0666 minus your umask).
 An exporter can be used for more than one C<run>.  Each C<run> starts
 again with the same file names, so running twice gives the same files.
 
+Table names and the database path are handed to mdbtools as separate
+arguments, never through a shell, and after a C<--> marker.  So names
+containing shell characters (C<; | E<gt> $( )>), spaces or newlines, or
+starting with C<->, are always treated as names, never as commands or
+options.  A table name can never place a file outside the output
+folder: C</> and C<\> are replaced, and names cannot start with a dot.
+
+An existing entry at the target name - including a symbolic link, even a
+broken one - counts as "already exists".  With C<overwrite>, the link
+itself is replaced; the file it pointed to is never written.
+
 The rules for file names are described in
 L<App::Access2CSV/How the CSV files are named>.
 
@@ -208,6 +224,10 @@ tables": nothing is exported, and C<run> returns 0.
 
 =item * B<Table names are case-sensitive.>  C<'orders'> does not match the
 table C<Orders>.  Names that do not match any table give a warning.
+
+=item * B<A failing logger does not stop the export.>  If the logger dies
+(for example, its disk is full), C<run> warns once with "Cannot write to
+the log", stops logging for this exporter, and carries on exporting.
 
 =item * B<run can croak.>  C<run> returns 1 when some tables fail, but it
 croaks (throws an exception) when nothing can be exported at all: the
@@ -479,18 +499,23 @@ only that table fails; C<run> warns, logs, and carries on.
 	|  are unavailable (warning)              | mdb-count is missing         | show_counts off               |
 	| FAILED: T: E (warning, logged)          | Table T was not exported,    | See E, one of the messages    |
 	|                                         | because of E                 | below                         |
-	| Output file already exists: F (use      | F exists and overwrite is    | Set overwrite, or use another |
-	|  --overwrite to replace it) (per table) | off                          | output_dir                    |
+	| Output file already exists: F (use      | F exists (a symbolic link,   | Set overwrite, or use another |
+	|  --overwrite to replace it) (per table) | even a broken one, counts)   | output_dir                    |
+	|                                         | and overwrite is off         |                               |
 	| mdb-export failed with exit status N: E | mdbtools could not read this | Check the table in Access     |
 	|  (per table)                            | table                        |                               |
 	| P was killed by signal N (per table,    | The program was stopped from | Check memory and system       |
 	|  or fatal for mdb-tables)               | outside                      | limits                        |
+	| P could not be run: E (per table, or    | The program was found but    | Check its permissions and     |
+	|  fatal for mdb-tables)                  | could not be started         | that it is a real program     |
 	| Table T, line N: cannot be represented  | A character is not in        | Use utf8 or utf8-bom          |
 	|  in cp1252 (per table)                  | Windows-1252                 |                               |
 	| Table T, line N: output of mdb-export   | mdbtools gave bytes that are | Check the MDB_ICONV setting   |
 	|  is not valid UTF-8 (per table)         | not UTF-8                    |                               |
-	| Cannot write F: E (per table)           | The finished file could not  | Check permissions and free    |
-	|                                         | be renamed into place        | disk space                    |
+	| Cannot write F: E (per table)           | The file could not be        | Check permissions and free    |
+	|                                         | written or renamed into place| disk space                    |
+	| Cannot write to the log: E (warning,    | The logger failed.  Exports  | Check the log's disk or       |
+	|  once)                                  | go on; logging stops         | destination                   |
 	+-----------------------------------------+------------------------------+-------------------------------+
 
 =head3 PSEUDOCODE
@@ -522,9 +547,12 @@ sub run {
 	# their marks in the caller's $@ and $!
 	local ($@, $!);
 
+	# An undef database is a missing one, not a file called ""
+	my $input = get_params('database', \@_);
+	delete $input->{database} if ref($input) eq 'HASH' && !defined($input->{database});
 	my $params = validate_strict(
 		schema => { database => { type => 'string', min => 1 } },
-		input  => get_params('database', \@_),
+		input  => $input,
 	);
 	my $database = $params->{database};
 
@@ -633,12 +661,14 @@ sub _reset_names :Private {
 sub _get_tables :Protected {
 	my ($self, $database) = @_;
 
-	# -1 puts one table per line, so names containing spaces survive
+	# -1 puts one table per line, so names containing spaces survive;
+	# "--" stops a database path starting with "-" being read as an option
 	my $stdout = '';
-	$self->_run_program($MDB_TABLES, ['-1', $database], \$stdout);
+	$self->_run_program($MDB_TABLES, ['-1', $END_OF_OPTIONS, $database], \$stdout);
 
-	# \r? copes with mdbtools builds that emit CRLF line endings
-	my @tables = sort grep { length($_) && !$self->_is_system_table($_) } split /\r?\n/, $stdout;
+	# \r? copes with mdbtools builds that emit CRLF line endings; a program
+	# that printed nothing may leave $stdout undefined
+	my @tables = sort grep { length($_) && !$self->_is_system_table($_) } split /\r?\n/, (defined($stdout) ? $stdout : '');
 	return \@tables;
 }
 
@@ -747,7 +777,9 @@ sub _export_table :Protected {
 	my $outfile = File::Spec->catfile($self->{output_dir}, $self->_csv_filename($table));
 
 	# Check before exporting so that we do not waste time on a big table
-	if(-e $outfile && !$self->{overwrite}) {
+	# -l as well as -e: a dangling symlink is an existing entry too, and
+	# must not be silently replaced
+	if((-e $outfile || -l $outfile) && !$self->{overwrite}) {
 		$self->_croak_i18n('output_exists', { params => [$outfile] });
 	}
 
@@ -762,8 +794,8 @@ sub _export_table :Protected {
 		# The BOM must reach the file before mdb-export starts writing to
 		# the same descriptor, hence the explicit flush
 		print {$tmp} $UTF8_BOM if $self->{encoding} eq $ENC_UTF8_BOM;
-		$tmp->flush();
-		$self->_run_program($MDB_EXPORT, [$database, $table], $tmp);
+		$tmp->flush() or $self->_croak_i18n('write_failed', { params => [$outfile, "$!"] });
+		$self->_run_program($MDB_EXPORT, [$END_OF_OPTIONS, $database, $table], $tmp);
 	}
 
 	$self->_install_file($tmp, $outfile);
@@ -796,7 +828,7 @@ sub _export_transcoded :Private {
 	# Spool to disk rather than memory, so huge tables do not exhaust RAM
 	my $spool = File::Temp->new(DIR => $self->{output_dir}, TEMPLATE => $TEMP_TEMPLATE, UNLINK => 1);
 	binmode $spool, ':raw';
-	$self->_run_program($MDB_EXPORT, [$database, $table], $spool);
+	$self->_run_program($MDB_EXPORT, [$END_OF_OPTIONS, $database, $table], $spool);
 	seek $spool, 0, 0;
 
 	# Convert line by line; $. gives the user a line number to look at
@@ -847,10 +879,11 @@ sub _count_rows :Private {
 	my ($self, $database, $table) = @_;
 
 	my $stdout = '';
-	$self->_run_program($MDB_COUNT, [$database, $table], \$stdout);
+	$self->_run_program($MDB_COUNT, [$END_OF_OPTIONS, $database, $table], \$stdout);
 
-	# mdb-count prints just the number, but be tolerant of whitespace
-	my ($rows) = $stdout =~ /(\d+)/;
+	# mdb-count prints just the number, but be tolerant of whitespace and
+	# of no output at all
+	my ($rows) = (defined($stdout) ? $stdout : '') =~ /(\d+)/;
 	return $rows || 0;
 }
 
@@ -874,9 +907,13 @@ sub _run_program :Private {
 	my $stderr = '';
 	run3([$self->{programs}{$name}, @{$args}], \undef, $stdout, \$stderr);
 
-	# Distinguish a signal from an ordinary non-zero exit status
-	my $status = $?;
+	# Distinguish "never started" (-1) and a signal from an ordinary
+	# non-zero exit status; $! only means something in the first case
+	my ($status, $reason) = ($?, "$!");
 	chomp $stderr;
+	if($status == -1) {
+		$self->_croak_i18n('program_not_run', { params => [$name, $reason] });
+	}
 	if($status & 127) {
 		$self->_croak_i18n('program_signalled', { params => [$name, $status & 127] });
 	}
@@ -973,7 +1010,18 @@ sub _warn :Private {
 sub _log :Private {
 	my ($self, $level, $key, $args) = @_;
 
-	$self->{logger}->$level($self->i18n($key, $args)) if $self->{logger};
+	my $logger = $self->{logger} or return $self;
+
+	# Logging is secondary: a logger that dies (full disk, closed socket)
+	# must not make a finished export look failed.  Say so once and stop
+	# using it.
+	local $@;
+	if(!eval { $logger->$level($self->i18n($key, $args)); 1 }) {
+		my $error = $@;
+		chomp $error;
+		delete $self->{logger};
+		$self->_carp_i18n('log_failed', { params => [$error] });
+	}
 	return $self;
 }
 

@@ -103,6 +103,8 @@ my %LEDGER = map { $_ => 1 } (
 	'run: cannot be represented in cp1252',
 	'run: output of mdb-export is not valid UTF-8',
 	'run: Cannot write',
+	'run: could not be run',
+	'run: Cannot write to the log',
 
 	# App::Access2CSV::run
 	'app: returns 0',
@@ -113,6 +115,7 @@ my %LEDGER = map { $_ => 1 } (
 	'app: Option requires an argument',
 	'app: Missing database filename',
 	'app: Cannot open log file',
+	'app: no logger was created',
 	'app: access2csv: MESSAGE',
 );
 
@@ -164,6 +167,8 @@ sub mdbtools_scenario {
 			my ($cmd, $stdin, $stdout, $stderr) = @_;
 			my ($program, @args) = @{$cmd};
 			$program =~ s{\A\Q$CONFIG{fake_bin}\E/}{};
+			# Like mdbtools, treat everything after "--" as a file or table
+			@args = grep { $_ ne '--' } @args;
 			${$stderr} = '';
 			$? = 0;
 
@@ -172,7 +177,7 @@ sub mdbtools_scenario {
 				${$stderr} = "not an Access file\n" if $scenario{tables_exit};
 				$? = ($scenario{tables_exit} || 0) << 8 | ($scenario{tables_kill} || 0);
 			} elsif($program eq $CONFIG{mdb_export}) {
-				my $table = $args[1];
+				my $table = $args[-1];
 				print {$stdout} exists $scenario{data}{$table} ? $scenario{data}{$table} : $CONFIG{csv_body};
 				$stdout->flush();
 				${$stderr} = "corrupt table\n" if $scenario{exit}{$table};
@@ -474,6 +479,35 @@ subtest 'run: existing files' => sub {
 	ticked('run: Cannot write');
 };
 
+subtest 'run: a program that cannot be started' => sub {
+	# $? == -1 from run3: the program was found but never ran
+	my ($dir, $db, $out) = workspace();
+	my $guard = mock_scoped(
+		"$CONFIG{exporter}::which" => sub { "$CONFIG{fake_bin}/$_[0]" },
+		"$CONFIG{exporter}::run3"  => sub { $! = ENOENT; $? = -1; return 1 },
+	);
+	throws_ok { $CONFIG{exporter}->new(output_dir => $out, progress => 0)->run($db) }
+		qr/\Amdb-tables could not be run: \Q$OS{enoent}\E at /, 'exact message';
+	ticked('run: could not be run');
+};
+
+subtest 'run: a failing logger' => sub {
+	# POD pitfall: the export carries on, with one warning
+	{
+		package Local::BrokenLogger;
+		sub new { return bless {}, shift }
+		sub debug { die "log device gone\n" }
+		sub info { die "log device gone\n" }
+		sub warn { die "log device gone\n" }
+	}
+	my ($dir, $db, $out) = workspace();
+	my $guard = mdbtools_scenario(tables => ['A', 'B']);
+	my ($status, undef, $stderr) = export($db, output_dir => $out, logger => Local::BrokenLogger->new());
+	is($status, $CONFIG{exit_ok}, 'exports unaffected');
+	is(scalar(() = $stderr =~ /^Cannot write to the log: log device gone at /mg), 1, 'warned once');
+	ticked('run: Cannot write to the log');
+};
+
 subtest 'run: table filter' => sub {
 	my ($dir, $db, $out) = workspace();
 	my $guard = mdbtools_scenario(tables => ['A', 'B', 'C']);
@@ -687,6 +721,14 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	is($status, $CONFIG{exit_fatal}, 'log cannot be opened');
 	is($stderr, "access2csv: Cannot open log file $log: $OS{enoent}\n", 'exact line');
 	ticked('app: Cannot open log file');
+
+	{
+		my $lg = mock_scoped('Log::Abstraction::new' => sub { return });
+		($status, undef, $stderr) = cli('--log', File::Spec->catfile($dir, 'y.log'), $db);
+		is($status, $CONFIG{exit_fatal}, 'logger constructor returned nothing');
+		like($stderr, qr/\Aaccess2csv: Cannot open log file .*: no logger was created\n\z/, 'exact reason');
+		ticked('app: no logger was created');
+	}
 
 	($status, undef, $stderr) = cli('--no-log', '--encoding', 'ebcdic', $db);
 	is($status, $CONFIG{exit_fatal}, 'bad encoding is fatal');

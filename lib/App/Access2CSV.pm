@@ -375,10 +375,12 @@ they were.
 	| Option X requires an argument       | An option such as --log was   | Give a value after it        |
 	|  (exit 2)                           | the last word                 |                              |
 	| Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
-	|                                     | or more than one was given    |                              |
+	|                                     | it was empty, or more than    |                              |
+	|                                     | one was given                 |                              |
 	| access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
 	|  E (exit 3)                         | written; E is the reason from | or --no-log                  |
-	|                                     | the operating system          |                              |
+	|                                     | the operating system, or "no  |                              |
+	|                                     | logger was created"           |                              |
 	| access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See MESSAGES in              |
 	|                                     | exporter                      | App::Access2CSV::Exporter    |
 	+-------------------------------------+-------------------------------+------------------------------+
@@ -459,7 +461,10 @@ sub _parse_options :Private {
 	# Getopt::Long has already warned about any unknown option.
 	return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS) unless $parsed;
 	return $class->_usage($EXIT_OK, $help) if $help;
-	return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS, $class->i18n('missing_database')) if @{$argv} != 1;
+	# An empty or undefined name is as good as no name at all
+	if(@{$argv} != 1 || !defined($argv->[0]) || !length($argv->[0])) {
+		return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS, $class->i18n('missing_database'));
+	}
 	return;
 }
 
@@ -506,10 +511,15 @@ sub _make_logger :Private {
 		1;
 	} or $class->_croak_i18n('log_open_failed', { params => [$file, (ref($@) && $@->can('errno')) ? $@->errno() : "$!"] });
 
-	return Log::Abstraction->new(
+	my $logger = Log::Abstraction->new(
 		logger => $file,
 		level  => $opt->{verbose} ? $LOG_LEVEL_VERBOSE : $LOG_LEVEL,
 	);
+
+	# The user asked for a log; carrying on without one would silently
+	# break that promise
+	$logger or $class->_croak_i18n('log_open_failed', { params => [$file, $class->i18n('logger_unavailable')] });
+	return $logger;
 }
 
 # _report_fatal

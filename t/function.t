@@ -445,7 +445,7 @@ subtest 'Exporter::_get_tables lists, filters and sorts user tables' => sub {
 	verbose_diag('tables', $tables);
 	returns_ok($tables, { type => 'arrayref' }, 'arrayref');
 	is_deeply($tables, ['Customers', 'Orders'], 'sorted, system tables and blanks dropped, CR removed');
-	is_deeply(\@calls, [[$CONFIG{mdb_tables}, ['-1', $CONFIG{database}]]], 'one name per line requested');
+	is_deeply(\@calls, [[$CONFIG{mdb_tables}, ['-1', '--', $CONFIG{database}]]], 'one name per line, options ended by --');
 };
 
 subtest 'Exporter::_is_system_table recognises Access internal tables' => sub {
@@ -594,7 +594,7 @@ subtest 'Exporter::_export_table writes the data through a temporary file' => su
 	is($installed{out}, $outfile, 'target path');
 	like((File::Spec->splitpath($installed{tmp}))[2], qr/\A\.access2csv-/, 'hidden temporary file');
 	is((File::Spec->splitpath($installed{tmp}))[1], (File::Spec->splitpath($outfile))[1], 'temporary file next to the target');
-	is_deeply(\@calls, [[$CONFIG{mdb_export}, [$CONFIG{database}, $CONFIG{table}]]], 'mdb-export arguments');
+	is_deeply(\@calls, [[$CONFIG{mdb_export}, ['--', $CONFIG{database}, $CONFIG{table}]]], 'mdb-export arguments, options ended by --');
 	is_deeply(\@logged, [['info', 'exported', { params => [$CONFIG{table}, $outfile] }]], 'logged');
 
 	new_exporter(output_dir => $dir, encoding => 'utf8-bom')->_export_table($CONFIG{database}, $CONFIG{table});
@@ -650,7 +650,7 @@ subtest 'Exporter::_export_transcoded converts UTF-8 to Windows-1252' => sub {
 	close $out;
 
 	is($buffer, "\"name\"\n\"Caf\xE9 \x80\"\n", 'e-acute and Euro converted');
-	is_deeply(\@calls, [[$CONFIG{mdb_export}, [$CONFIG{database}, $CONFIG{table}]]], 'mdb-export arguments');
+	is_deeply(\@calls, [[$CONFIG{mdb_export}, ['--', $CONFIG{database}, $CONFIG{table}]]], 'mdb-export arguments, options ended by --');
 };
 
 subtest 'Exporter::_export_transcoded reports bad input with line numbers' => sub {
@@ -724,7 +724,7 @@ subtest 'Exporter::_count_rows reads the number from mdb-count' => sub {
 	my $rows = new_exporter()->_count_rows($CONFIG{database}, $CONFIG{table});
 	is($rows, $CONFIG{row_count}, 'number parsed despite whitespace');
 	returns_ok($rows, { type => 'integer', min => 0 }, 'an integer');
-	is_deeply(\@calls, [[$CONFIG{mdb_count}, [$CONFIG{database}, $CONFIG{table}]]], 'mdb-count arguments');
+	is_deeply(\@calls, [[$CONFIG{mdb_count}, ['--', $CONFIG{database}, $CONFIG{table}]]], 'mdb-count arguments, options ended by --');
 
 	$output = '';
 	is(new_exporter()->_count_rows($CONFIG{database}, $CONFIG{table}), 0, 'no output: 0');
