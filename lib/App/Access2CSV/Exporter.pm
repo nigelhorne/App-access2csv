@@ -282,7 +282,7 @@ A new C<App::Access2CSV::Exporter> object.
 
 =head3 Side Effects
 
-None.
+None.  Your C<$@>, C<$!> and C<$_> are left as they were.
 
 =head3 Usage
 
@@ -345,6 +345,9 @@ are not translated.
 sub new {
 	my $class = shift;
 
+	# Validation uses eval internally; the caller's $@ must survive
+	local $@;
+
 	# Drop undefined values so that "not given" means "use the default"
 	my $args = get_params(undef, \@_) || {};
 	my %given = map { $_ => $args->{$_} } grep { defined $args->{$_} } keys %{$args};
@@ -373,6 +376,9 @@ only print what would be exported.
 
 =back
 
+You can give it on its own, C<< $exporter->run('shop.accdb') >>, or as a
+hash reference, C<< $exporter->run({ database => 'shop.accdb' }) >>.
+
 =head3 Returns
 
 C<0> if every selected table was exported, or in dry-run mode.
@@ -398,6 +404,12 @@ names in C<tables>, and about a missing C<mdb-count>.
 =item * Croaks, before writing anything, if the database cannot be read, a
 needed mdbtools program is missing, C<mdb-tables> fails, or the output
 folder cannot be created.
+
+=item * Switches C<show_counts> off for this exporter if C<mdb-count> is
+missing.
+
+=item * Leaves your C<$@>, C<$!>, C<$?>, C<$_> and any pending C<alarm>
+as they were (except that a croak sets C<$@> in your C<eval>, as usual).
 
 =back
 
@@ -452,12 +464,15 @@ only that table fails; C<run> warns, logs, and carries on.
 	|                                         | from the operating system    |                               |
 	| Database F is not a regular file (fatal)| F is a folder or a device    | Give the database file        |
 	| Database F is not readable (fatal)      | No permission to read F      | Fix the permissions           |
+	|                                         | (never happens for root)     |                               |
 	| Required program not found in PATH: P   | mdbtools is not installed,   | Install mdbtools, or fix PATH |
 	|  (fatal)                                | or not in PATH               |                               |
 	| mdb-tables failed with exit status N: E | mdbtools cannot read the     | Check that F is a real Access |
 	|  (fatal)                                | file                         | database                      |
-	| Cannot create output directory D: E     | The folder cannot be made    | Check permissions and path    |
-	|  (fatal)                                |                              |                               |
+	| Cannot create output directory D: E     | The folder cannot be made;   | Check permissions and path    |
+	|  (fatal)                                | E is the reason for D itself |                               |
+	|                                         | (e.g. "Not a directory" when |                               |
+	|                                         | a file is in the way)        |                               |
 	| Tables not found in database: T         | Names in tables are not in   | Check spelling and case       |
 	|  (warning)                              | the database                 |                               |
 	| mdb-count not found in PATH; row counts | show_counts is on, but       | Install mdb-count, or turn    |
@@ -502,6 +517,10 @@ only that table fails; C<run> warns, logs, and carries on.
 
 sub run {
 	my $self = shift;
+
+	# File tests, evals and child processes below would otherwise leave
+	# their marks in the caller's $@ and $!
+	local ($@, $!);
 
 	my $params = validate_strict(
 		schema => { database => { type => 'string', min => 1 } },
@@ -671,7 +690,11 @@ sub _make_output_dir :Private {
 	# so the message can be translated and names the directory we wanted
 	make_path($dir, { error => \my $errors });
 	if(@{$errors} || !-d $dir) {
-		my ($detail) = map { values %{$_} } @{$errors};
+		# File::Path may also report a parent (e.g. "File exists" for a
+		# plain file in the way); the reason for $dir itself, or failing
+		# that the last one, is what explains the failure
+		my ($mine) = grep { exists $_->{$dir} } @{$errors};
+		my $detail = $mine ? $mine->{$dir} : (@{$errors} ? (values %{ $errors->[-1] })[0] : undef);
 		$self->_croak_i18n('mkdir_failed', { params => [$dir, $detail || "$!"] });
 	}
 	return $self;

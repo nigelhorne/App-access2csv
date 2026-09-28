@@ -14,3 +14,4 @@ t/function.t
 t/i18n.t
 t/lib/FakeMDB.pm
 t/locales.t
+t/unit.t

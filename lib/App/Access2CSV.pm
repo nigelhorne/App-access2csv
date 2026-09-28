@@ -318,6 +318,9 @@ line that starts with C<access2csv:>.
 
 =item * It creates or adds to the log file, unless logging is off.
 
+=item * It leaves your C<$@>, C<$!>, C<$_> and any pending C<alarm> as
+they were.
+
 =back
 
 =head3 Usage
@@ -399,6 +402,10 @@ line that starts with C<access2csv:>.
 
 sub run {
 	my ($class, @argv) = @_;
+
+	# Option parsing, file tests and the eval below would otherwise leave
+	# their marks in the caller's $@ and $!
+	local ($@, $!);
 
 	# Parsing may already decide the outcome (--help, bad options, ...)
 	my %opt = %DEFAULTS;

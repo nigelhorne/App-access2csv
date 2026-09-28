@@ -311,7 +311,8 @@ The message as a string, without a newline at the end.
 
 =head3 Side Effects
 
-None.  It only reads C<%MESSAGES> and C<%ENV>.
+None.  It only reads C<%MESSAGES> and C<%ENV>.  Your C<$@>, C<$!> and
+C<$_> are left as they were.
 
 =head3 Usage
 
@@ -393,6 +394,9 @@ None.  It only reads C<%MESSAGES> and C<%ENV>.
 
 sub i18n {
 	my $self = shift;
+
+	# Validation uses eval internally; the caller's $@ must survive
+	local $@;
 
 	# Accept both i18n('key', {...}) and i18n({ key => ..., args => {...} })
 	# Undefined values are dropped so that validation reports them as missing
