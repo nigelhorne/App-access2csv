@@ -11,7 +11,7 @@ BEGIN { $Sub::Private::config{mode} = 'enforce' }
 # Inherit i18n() and the protected _croak_i18n/_carp_i18n helpers
 use parent 'App::Access2CSV::I18N';
 
-use Encode qw(FB_CROAK);
+use Encode qw(FB_CROAK find_encoding);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp;
@@ -45,6 +45,13 @@ Readonly::Scalar my $ENC_UTF8     => 'utf8';
 Readonly::Scalar my $ENC_UTF8_BOM => 'utf8-bom';
 Readonly::Scalar my $ENC_CP1252   => 'cp1252';
 Readonly::Array  my @ENCODINGS    => ($ENC_UTF8, $ENC_UTF8_BOM, $ENC_CP1252);
+
+# Encoding objects, looked up once: calling Encode::decode/encode by name
+# repeats the lookup for every line, which made conversion about 4 times
+# slower on large tables.  (Plain lexicals, not Readonly: Readonly's deep
+# copy could interfere with the objects' internals.)
+my $UTF8_CODEC   = find_encoding('UTF-8');
+my $CP1252_CODEC = find_encoding('cp1252');
 
 # Byte order mark written at the start of utf8-bom files (for Excel)
 Readonly::Scalar my $UTF8_BOM     => "\xEF\xBB\xBF";
@@ -414,7 +421,7 @@ sub new {
 	# Copy the table list so later changes by the caller cannot affect us
 	$params->{tables} = [ @{ $params->{tables} } ] if $params->{tables};
 
-	my $self = bless { %DEFAULTS, %{$params}, used_names => {}, programs => {} }, $class;
+	my $self = bless { %DEFAULTS, %{$params}, used_names => {}, next_suffix => {}, programs => {} }, $class;
 	return set_return($self, { type => 'object' });
 }
 
@@ -727,6 +734,7 @@ sub _reset_names :Private {
 	my $self = shift;
 
 	$self->{used_names} = {};
+	$self->{next_suffix} = {};
 	return $self;
 }
 
@@ -912,10 +920,10 @@ sub _export_transcoded :Private {
 
 	# Convert line by line; $. gives the user a line number to look at
 	while(my $line = <$spool>) {
-		my $chars = eval { Encode::decode('UTF-8', $line, FB_CROAK) };
+		my $chars = eval { $UTF8_CODEC->decode($line, FB_CROAK) };
 		$self->_croak_i18n('invalid_utf8', { params => [$table, $.] }) unless defined $chars;
 
-		my $bytes = eval { Encode::encode($ENC_CP1252, $chars, FB_CROAK) };
+		my $bytes = eval { $CP1252_CODEC->encode($chars, FB_CROAK) };
 		$self->_croak_i18n('unmappable', { params => [$table, $., $ENC_CP1252] }) unless defined $bytes;
 
 		print {$out} $bytes;
@@ -1044,10 +1052,19 @@ sub _csv_filename :Protected {
 	$name = "_$name" if $name =~ $RESERVED_NAME_RE;
 	$name = $UNNAMED unless length $name;
 
+	# Find the smallest free suffix (_2, _3, ...).  Start from where this
+	# name's last search ended rather than from 2: every suffix below that
+	# point was taken then and is still taken (names are never released
+	# during a run), so the answer is the same, but N tables with the same
+	# name cost O(N) in total instead of O(N squared).
 	my $used = $self->{used_names};
+	my $base = lc $name;
 	my $file = $name . $CSV_SUFFIX;
-	for(my $n = 2; exists $used->{lc $file}; $n++) {
+	if(exists $used->{lc $file}) {
+		my $n = $self->{next_suffix}{$base} // 2;
+		$n++ while exists $used->{lc "${name}_$n$CSV_SUFFIX"};
 		$file = "${name}_$n$CSV_SUFFIX";
+		$self->{next_suffix}{$base} = $n + 1;
 	}
 	$used->{lc $file} = 1;
 
@@ -1233,10 +1250,30 @@ unchanged state.  You do not need to read this section to use the module.
 	┌─ Exporter ─────────────────────────────────────────────────
 	│ settings : SETTING ⇸ VALUE
 	│ used_names : ℙ FILENAME
+	│ next_suffix : NAME ⇸ ℕ
 	│ programs : PROGRAM ⇸ PATH
 	├────────────────────────────────────────────────────────────
 	│ settings(encoding) ∈ {utf8, utf8-bom, cp1252}
 	│ ∀ n₁, n₂ : used_names • lower(n₁) = lower(n₂) ⇒ n₁ = n₂
+	│ ∀ b : dom next_suffix; k : ℕ | 2 ≤ k < next_suffix(b) •
+	│     lower(b ⁀ "_" ⁀ k ⁀ ".csv") ∈ lower⦇used_names⦈
+	└────────────────────────────────────────────────────────────
+
+The last line is what makes the file-name search fast: every suffix
+below the remembered starting point is already taken, so starting there
+finds the same (smallest free) suffix as starting from 2.
+
+=head2 csv_name
+
+	┌─ CsvName ──────────────────────────────────────────────────
+	│ ΔExporter
+	│ table? : NAME ; file! : FILENAME
+	├────────────────────────────────────────────────────────────
+	│ b = safe(table?)
+	│ file! = (if lower(b ⁀ ".csv") ∉ lower⦇used_names⦈ then b ⁀ ".csv"
+	│          else b ⁀ "_" ⁀ min{ k : ℕ | k ≥ 2 ∧
+	│                 lower(b ⁀ "_" ⁀ k ⁀ ".csv") ∉ lower⦇used_names⦈ } ⁀ ".csv")
+	│ used_names' = used_names ∪ {file!}
 	└────────────────────────────────────────────────────────────
 
 =head2 new
@@ -1249,6 +1286,7 @@ unchanged state.  You do not need to read this section to use the module.
 	│ ∀ k : dom args? • valid(NEW_SCHEMA(k), args?(k))
 	│ settings' = DEFAULTS ⊕ { k : dom args? | args?(k) ≠ undef • k ↦ args?(k) }
 	│ used_names' = ∅
+	│ next_suffix' = ∅
 	│ programs' = ∅
 	└────────────────────────────────────────────────────────────
 

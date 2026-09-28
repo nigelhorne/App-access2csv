@@ -56,4 +56,41 @@ subtest 'unicode names are kept' => sub {
 	is($e->_csv_filename("Caf\x{e9}"), "Caf\x{e9}.csv", 'non-ASCII characters are not mangled');
 };
 
+subtest 'the fast suffix search chooses exactly what the simple one did' => sub {
+	# Reference model: the original algorithm, which tried _2, _3, ... from
+	# the start every time.  The optimised version remembers where each
+	# name's search ended; it must never choose a different name.
+	my $reference = sub {
+		my ($used, $name) = @_;
+		my $file = "$name.csv";
+		for(my $n = 2; exists $used->{lc $file}; $n++) {
+			$file = "${name}_$n.csv";
+		}
+		$used->{lc $file} = 1;
+		return $file;
+	};
+
+	# Random sequences built from names that collide in every way:
+	# repeats, case variants, and literal names that look like suffixes
+	my @pool = ('X', 'x', 'X_2', 'x_3', 'X_2_2', 'Y', 'X_10', 'X_2.csv');
+	srand(20260928);
+	foreach my $round (1 .. 1000) {
+		my @names = map { $pool[int(rand(@pool))] } 1 .. 1 + int(rand(30));
+		my $e = App::Access2CSV::Exporter->new();
+		my %model;
+		my @got = map { $e->_csv_filename($_) } @names;
+		my @want = map { $reference->(\%model, $_) } @names;
+		if(!is_deeply(\@got, \@want, "round $round")) {
+			diag("names: @names");
+			last;
+		}
+	}
+
+	# And after a reset, the remembered positions are forgotten too
+	my $e = App::Access2CSV::Exporter->new();
+	$e->_csv_filename('X') for 1 .. 5;
+	$e->_reset_names();
+	is($e->_csv_filename('X') . ' ' . $e->_csv_filename('X'), 'X.csv X_2.csv', 'reset starts again from _2');
+};
+
 done_testing();
