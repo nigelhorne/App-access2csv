@@ -301,7 +301,7 @@ subtest 'Exporter::new rejects bad settings' => sub {
 	throws_ok { $class->new(logger => 'x.log') } qr/Parameter 'logger' must be an object/, 'logger not an object';
 	throws_ok { $class->new(logger => bless({}, 'Local::Mute')) } qr/understands the debug method/, 'logger without methods';
 	throws_ok { $class->new(tables => 'Orders') } qr/'tables'/, 'tables not an array';
-	throws_ok { $class->new(tables => [[1]]) } qr/tables can only contain strings/, 'tables of non-strings';
+	throws_ok { $class->new(tables => [[1]]) } qr/'?tables'? can only contain strings/, 'tables of non-strings';
 	throws_ok { $class->new(output_dir => '') } qr/'output_dir'/, 'empty output_dir';
 };
 
@@ -780,8 +780,11 @@ subtest 'Exporter::_run_program leaves the caller\'s $? alone' => sub {
 	my $guard = mock_scoped(mock_run3(0, ''));
 
 	local $? = $CONFIG{child_status} << 8;
+	open my $in, '<', \"a\nb\n" or die $!;
+	<$in>;
 	$e->_run_program($CONFIG{mdb_export}, [], \my $out);
 	is($? >> 8, $CONFIG{child_status}, '$? localised');
+	is($., 1, '$. still refers to the caller\'s handle');
 };
 
 subtest 'Exporter::_csv_filename makes safe, unique names' => sub {

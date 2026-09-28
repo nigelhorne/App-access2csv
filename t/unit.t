@@ -376,7 +376,7 @@ subtest 'new: documented errors' => sub {
 	ticked('new: logger must be an object');
 
 	throws_ok { $class->new(tables => 'Orders') } qr/Parameter 'tables' must be/, 'tables not an array';
-	throws_ok { $class->new(tables => [['x']]) } qr/tables can only contain strings/, 'tables of non-strings';
+	throws_ok { $class->new(tables => [['x']]) } qr/'?tables'? can only contain strings/, 'tables of non-strings';
 	ticked('new: tables must be');
 };
 

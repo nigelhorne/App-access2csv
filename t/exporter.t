@@ -66,7 +66,7 @@ subtest 'constructor validation' => sub {
 	throws_ok { App::Access2CSV::Exporter->new(bogus => 1) } qr/Unknown parameter 'bogus'/, 'unknown setting';
 	throws_ok { App::Access2CSV::Exporter->new(logger => 'file.log') } qr/logger/, 'logger must be an object';
 	throws_ok { App::Access2CSV::Exporter->new(logger => bless({}, 'Local::NoMethods')) } qr/logger.*debug/, 'logger must have debug/info/warn';
-	throws_ok { App::Access2CSV::Exporter->new(tables => [['nested']]) } qr/tables can only contain strings/, 'tables must be strings';
+	throws_ok { App::Access2CSV::Exporter->new(tables => [['nested']]) } qr/'?tables'? can only contain strings/, 'tables must be strings';
 
 	my @tables = ('A');
 	my $e = App::Access2CSV::Exporter->new(tables => \@tables);

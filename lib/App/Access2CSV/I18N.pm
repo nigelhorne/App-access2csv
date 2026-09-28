@@ -249,8 +249,9 @@ C<other> form is used, even if the number in C<params> is 1.
 =item * B<Replacing a key replaces all of its forms.>
 C<%MESSAGES> is not merged in depth.  If you set
 C<< $MESSAGES{en}{summary} = 'Done' >>, the C<one> and C<other> forms of
-C<summary> are gone.  If a translation gives a plural hash, it must have
-an C<other> form.
+C<summary> are gone.  If a translation gives a plural hash, it should have
+an C<other> form: when no form fits, the English text for that key is
+used instead.
 
 =item * B<Unknown context.>  A C<context> that the template does not have
 is ignored; the plural forms (or the plain text) are used instead.
@@ -434,6 +435,17 @@ sub i18n {
 	if(ref($entry) eq 'HASH') {
 		my $category = _plural_category($lang, $args->{count});
 		$entry = exists($entry->{$category}) ? $entry->{$category} : $entry->{$PLURAL_OTHER};
+	}
+
+	# A translation with forms missing (no match and no "other") would
+	# leave $entry undefined; fall back to the English text for this key,
+	# as for any other gap in a translation
+	if(!defined($entry) || ref($entry)) {
+		# An object pinned to English, so the retry cannot pick this
+		# language again and recurse
+		my $english = bless { language => $DEFAULT_LANGUAGE }, __PACKAGE__;
+		return $english->i18n({ key => $params->{key}, args => { %{$args} } }) if $lang ne $DEFAULT_LANGUAGE;
+		confess(sprintf($MESSAGES{$DEFAULT_LANGUAGE}{unknown_message} || 'Unknown message key: %s', $params->{key}));
 	}
 
 	# A literal message with no placeholders is returned untouched, which

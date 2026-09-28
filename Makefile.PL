@@ -26,7 +26,7 @@ WriteMakefile(
 		'IPC::System::Simple' => 0,	# needed by autodie qw(:all)
 		'Log::Abstraction' => 0,
 		'Params::Get'  => 0,
-		'Params::Validate::Strict' => 0,
+		'Params::Validate::Strict' => 0.40,
 		'parent'       => 0,
 		'Pod::Usage'   => 0,
 		'Readonly'     => 0,

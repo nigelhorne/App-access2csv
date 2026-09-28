@@ -428,7 +428,7 @@ folder cannot be created.
 =item * Switches C<show_counts> off for this exporter if C<mdb-count> is
 missing.
 
-=item * Leaves your C<$@>, C<$!>, C<$?>, C<$_> and any pending C<alarm>
+=item * Leaves your C<$@>, C<$!>, C<$?>, C<$_>, C<$.> and any pending C<alarm>
 as they were (except that a croak sets C<$@> in your C<eval>, as usual).
 
 =back
@@ -547,8 +547,10 @@ sub run {
 	# their marks in the caller's $@ and $!
 	local ($@, $!);
 
-	# An undef database is a missing one, not a file called ""
+	# An undef database is a missing one, not a file called "".  Work on a
+	# copy: get_params hands back the caller's own hash when given one.
 	my $input = get_params('database', \@_);
+	$input = { %{$input} } if ref($input) eq 'HASH';
 	delete $input->{database} if ref($input) eq 'HASH' && !defined($input->{database});
 	my $params = validate_strict(
 		schema => { database => { type => 'string', min => 1 } },
@@ -563,13 +565,14 @@ sub run {
 
 	my $tables = $self->_select_tables($self->_get_tables($database));
 
-	# A dry run must not touch the file system, so it returns before mkdir
-	my $status = $EXIT_OK;
+	# A dry run must not touch the file system, so it never reaches mkdir.
+	# $status is defined exactly once, on each path.
+	my $status;
 	if($self->{dry_run}) {
 		$self->_dry_run($database, $tables);
+		$status = $EXIT_OK;
 	} else {
-		$self->_make_output_dir();
-		my $failed = $self->_export_all($database, $tables);
+		my $failed = $self->_make_output_dir()->_export_all($database, $tables);
 		$status = $failed ? $EXIT_FAILURE : $EXIT_OK;
 	}
 
@@ -841,6 +844,10 @@ sub _export_transcoded :Private {
 
 		print {$out} $bytes;
 	}
+
+	# Close the spool explicitly once it has been read.  (On a croak above,
+	# File::Temp's destructor closes and deletes it.)
+	close $spool;
 	return $self;
 }
 
@@ -899,8 +906,9 @@ sub _count_rows :Private {
 sub _run_program :Private {
 	my ($self, $name, $args, $stdout) = @_;
 
-	# run3 sets $?; keep the caller's value
-	local $?;
+	# run3 sets $?, and reads captured output back from a temporary file,
+	# which changes the handle $. refers to; keep the caller's values
+	local ($?, $.);
 
 	# A list (not a string) is passed, so no shell ever sees the file or
 	# table name and quoting cannot be abused
