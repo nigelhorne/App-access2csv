@@ -34,13 +34,13 @@ on 'test' => sub {
 	requires 'FindBin';
 	requires 'POSIX';
 	requires 'Storable';
-	requires 'Time::HiRes';
 	requires 'Test::Memory::Cycle';
 	requires 'Test::Mockingbird', '0.13';   # mock_scoped multi-method form
 	requires 'Test::Most';
 	requires 'Test::Returns';
 	requires 'Test::Without::Module';
-	recommends 'IO::Pty';   # "standard input is a terminal" tests
+	requires 'Time::HiRes';
+	recommends 'IO::Pty';
 };
 
 on 'develop' => sub {
