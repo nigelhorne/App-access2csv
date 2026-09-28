@@ -12,6 +12,27 @@ if($^O eq 'darwin') {
 	$dist->{'TAR'} = 'gtar';
 }
 
+# mdbtools are external programs, not Perl modules, so CPAN cannot install
+# them.  Say so now if they are missing - but do not fail: they may be
+# installed later, and failing here would make CPAN testers report "NA".
+# (Core Perl only: File::Which is not installed yet at this point.)
+{
+	require Config;
+	require File::Spec;
+	my @missing = grep {
+		my $program = $_;
+		!grep {
+			my $dir = $_;
+			grep { -f $_ && -x _ } map { File::Spec->catfile($dir, "$program$_") } ('', '.exe');
+		} File::Spec->path();
+	} qw(mdb-tables mdb-export);
+	if(@missing) {
+		print "NOTE: access2csv needs the mdbtools programs, which were not found in PATH\n",
+			"      (missing: @missing).  Install mdbtools with your package manager,\n",
+			"      e.g. 'sudo apt install mdbtools' or 'brew install mdbtools'.\n";
+	}
+}
+
 WriteMakefile(
 	NAME         => 'App::Access2CSV',
 	VERSION_FROM => 'lib/App/Access2CSV.pm',

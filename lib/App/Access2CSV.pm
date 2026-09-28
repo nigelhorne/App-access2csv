@@ -201,6 +201,21 @@ is it renamed to its real name.  So if something goes wrong, you never
 get a half-written CSV file, and an old file is only replaced by a
 complete new one.
 
+=head1 REQUIREMENTS
+
+The mdbtools programs C<mdb-tables> and C<mdb-export> must be installed
+and in your C<PATH>; C<mdb-count> is needed only for B<--show-counts>.
+They are not Perl modules, so the CPAN installer cannot install them for
+you.  Install them with your system's package manager, for example:
+
+	sudo apt install mdbtools       # Debian, Ubuntu
+	sudo dnf install mdbtools       # Fedora
+	brew install mdbtools           # macOS (Homebrew)
+	pacman -S mingw-w64-x86_64-mdbtools   # Windows (MSYS2)
+
+Without them the program stops with "Required program not found in
+PATH".  Project home: L<https://github.com/mdbtools/mdbtools>.
+
 =head1 USING FROM PERL
 
 The program is a very thin wrapper.  You can call the same code from Perl:
