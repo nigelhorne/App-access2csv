@@ -15,10 +15,10 @@ use FindBin qw($Bin);
 use lib File::Spec->catdir($Bin, 'lib');
 
 use App::Access2CSV::Exporter;
-use FakeMDB qw(install_fake_mdbtools make_database);
+use FakeMDB qw(install_fake_mdbtools make_database fake_path);
 
 # Only the fake programs may be found, so the real mdbtools cannot interfere
-local $ENV{PATH} = install_fake_mdbtools();
+local $ENV{PATH} = fake_path();
 local @ENV{qw(LANGUAGE LC_ALL LC_MESSAGES LANG)} = (undef) x 4;
 
 # A logger that remembers what it was told, standing in for Log::Abstraction
@@ -210,7 +210,7 @@ subtest 'row counts' => sub {
 };
 
 subtest 'missing mdb-count is not fatal' => sub {
-	local $ENV{PATH} = install_fake_mdbtools(qw(mdb-tables mdb-export));
+	local $ENV{PATH} = fake_path(qw(mdb-tables mdb-export));
 	my ($status, undef, $stdout, $stderr) = export(['Orders'], dry_run => 1, show_counts => 1);
 	is($status, 0, 'still succeeds');
 	like($stderr, qr/mdb-count not found in PATH; row counts are unavailable/, 'warned');
@@ -244,7 +244,7 @@ subtest 'fatal errors' => sub {
 	my $db = make_database($bad, 'FAIL');
 	throws_ok { $e->run($db) } qr/mdb-tables failed with exit status 2: not an Access database/, 'mdb-tables failure';
 
-	local $ENV{PATH} = install_fake_mdbtools('mdb-tables');
+	local $ENV{PATH} = fake_path('mdb-tables');
 	throws_ok { $e->run($db) } qr/Required program not found in PATH: mdb-export/, 'missing program';
 };
 

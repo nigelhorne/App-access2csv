@@ -25,7 +25,18 @@ use File::Spec;
 use File::Temp qw(tempdir);
 
 use Exporter qw(import);
-our @EXPORT_OK = qw(install_fake_mdbtools make_database);
+our @EXPORT_OK = qw(install_fake_mdbtools make_database fake_path);
+
+# fake_path(@programs): a whole PATH value for tests.  On Unix, only the
+# stand-in folder, so real mdbtools cannot interfere.  On Windows the rest
+# of PATH is kept after it: with PATH replaced entirely, Windows could not
+# start any process at all (not even perl.exe).
+sub fake_path {
+	my $dir = install_fake_mdbtools(@_);
+	return $dir unless $^O eq 'MSWin32';
+	require Config;
+	return join($Config::Config{path_sep}, $dir, $ENV{PATH} // '');
+}
 
 # Windows: the stand-ins are Perl scripts with a .cmd file beside each,
 # so that File::Which finds them (through PATHEXT).  But IPC::Run3 starts

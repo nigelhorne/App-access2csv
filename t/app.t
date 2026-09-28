@@ -15,9 +15,9 @@ use FindBin qw($Bin);
 use lib File::Spec->catdir($Bin, 'lib');
 
 use App::Access2CSV;
-use FakeMDB qw(install_fake_mdbtools make_database);
+use FakeMDB qw(install_fake_mdbtools make_database fake_path);
 
-local $ENV{PATH} = install_fake_mdbtools();
+local $ENV{PATH} = fake_path();
 local @ENV{qw(LANGUAGE LC_ALL LC_MESSAGES LANG)} = (undef) x 4;
 
 # cli(@argv): run the program and return (status, stdout, stderr)
