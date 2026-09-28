@@ -528,13 +528,22 @@ subtest 'argv --table: 0 | 1 | many | non-ASCII' => sub {
 };
 
 subtest 'argv --log: empty | file | --no-log' => sub {
+	# The default log goes to the current folder, so run in an empty one:
+	# a log someone left in the real current folder must not matter, and
+	# a failing test must not leave one there either
 	my ($dir, $db) = new_database('T');
+	my $work = tempdir(CLEANUP => 1);
+	my $cwd = File::Spec->rel2abs(File::Spec->curdir());
+	chdir $work or die "$work: $!";
+
 	cli('--log', '', '--dry-run', $db);
 	ok(!-e 'access2csv.log', "'' means no log (no default file created)");
 	cli('--log', "$dir/x.log", '--dry-run', $db);
 	ok(-e "$dir/x.log", 'a file name: that file');
 	cli('--no-log', '--dry-run', $db);
 	ok(!-e 'access2csv.log', '--no-log: no file');
+
+	chdir $cwd or die "$cwd: $!";
 };
 
 subtest 'no failure above changed shared state' => sub {

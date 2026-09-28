@@ -597,8 +597,16 @@ subtest 'app: hostile command lines' => sub {
 	($status, undef, $stderr) = cli('');
 	is($status, $CONFIG{exit_usage}, 'empty database: usage error');
 
-	($status) = cli('--no-log', '--', '-');
-	is($status, $CONFIG{exit_fatal}, '"-" after "--" is a file name (and missing)');
+	# "-" means standard input, even after "--" (as for cat and friends);
+	# here standard input is empty, which is reported as such
+	{
+		open my $saved, '<&', \*STDIN or die $!;
+		open STDIN, '<', File::Spec->devnull() or die $!;
+		($status, undef, $stderr) = cli('--no-log', '--', '-');
+		open STDIN, '<&', $saved or die $!;
+	}
+	is($status, $CONFIG{exit_fatal}, '"-" after "--" reads standard input');
+	like($stderr, qr/Standard input is empty/, '... which is empty here');
 
 	($status, undef, $stderr) = cli('--no-log', '--output-dir', '', $db);
 	is($status, $CONFIG{exit_fatal}, 'empty --output-dir is refused');

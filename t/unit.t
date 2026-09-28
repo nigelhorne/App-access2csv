@@ -56,6 +56,7 @@ Readonly::Hash my %CONFIG => (
 	alarm_secs   => 1000,
 	alarm_slack  => 5,
 	sentinel     => "sentinel\n",
+	signal_delay => 0.5,
 	utf8_bom     => "\xEF\xBB\xBF",
 	csv_body     => "\"id\",\"name\"\n1,\"x\"\n",
 );
@@ -119,6 +120,10 @@ my %LEDGER = map { $_ => 1 } (
 	'app: Cannot open log file',
 	'app: no logger was created',
 	'app: it is a symbolic link',
+	'app: Standard input is empty',
+	'app: Cannot read standard input',
+	'app: Standard input is a terminal',
+	'app: Interrupted while reading standard input',
 	'app: access2csv: MESSAGE',
 );
 
@@ -746,6 +751,58 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	is($status, $CONFIG{exit_fatal}, 'log file is a symbolic link');
 	is($stderr, "access2csv: Cannot open log file $dir/link.log: it is a symbolic link\n", 'exact reason');
 	ticked('app: it is a symbolic link');
+
+	# Database "-": read from standard input, which is reopened here
+	my $with_stdin = sub {
+		my ($source, @argv) = @_;
+		open my $saved, '<&', \*STDIN or die $!;
+		open STDIN, '<', $source or die "$source: $!";
+		my @result = cli(@argv);
+		open STDIN, '<&', $saved or die $!;
+		return @result;
+	};
+	($status, undef, $stderr) = $with_stdin->(File::Spec->devnull(), '--no-log', '-');
+	is($status, $CONFIG{exit_fatal}, 'empty standard input');
+	is($stderr, "access2csv: Standard input is empty: no database was piped in\n", 'exact message');
+	ticked('app: Standard input is empty');
+
+	($status, undef, $stderr) = $with_stdin->($dir, '--no-log', '-');
+	is($status, $CONFIG{exit_fatal}, 'unreadable standard input (a folder)');
+	is($stderr, "access2csv: Cannot read standard input: $OS{eisdir}\n", 'exact message');
+	ticked('app: Cannot read standard input');
+
+	SKIP: {
+		skip('IO::Pty is needed to provide a terminal', 2) unless eval { require IO::Pty; 1 };
+		my $pty = IO::Pty->new();
+		($status, undef, $stderr) = $with_stdin->($pty->ttyname(), '--no-log', '-');
+		is($status, $CONFIG{exit_usage}, 'terminal on standard input: usage error');
+		like($stderr, qr/^Standard input is a terminal: pipe the database in, or give its file name$/m, 'exact message');
+	}
+	ticked('app: Standard input is a terminal');
+
+	{
+		# A stalled pipe; a child process then sends SIGTERM to this one
+		pipe(my $reader, my $writer) or die "pipe: $!";
+		my $parent = $$;
+		my $pid = fork // die "fork: $!";
+		if(!$pid) {
+			close $reader;
+			syswrite($writer, "T\n");
+			select(undef, undef, undef, $CONFIG{signal_delay});
+			kill 'TERM', $parent;
+			select(undef, undef, undef, $CONFIG{signal_delay});
+			exit 0;
+		}
+		close $writer;
+		open my $saved, '<&', \*STDIN or die $!;
+		open STDIN, '<&', $reader or die $!;
+		($status, undef, $stderr) = cli('--no-log', '-');
+		open STDIN, '<&', $saved or die $!;
+		waitpid($pid, 0);
+		is($status, $CONFIG{exit_fatal}, 'interrupted while reading');
+		is($stderr, "access2csv: Interrupted by SIGTERM while reading the database from standard input\n", 'exact message');
+	}
+	ticked('app: Interrupted while reading standard input');
 
 	{
 		my $lg = mock_scoped('Log::Abstraction::new' => sub { return });

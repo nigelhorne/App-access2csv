@@ -9,6 +9,7 @@ use autodie qw(:all);
 BEGIN { $Sub::Private::config{mode} = 'enforce' }
 
 use Carp qw(carp confess croak);
+use Config;
 use Params::Get qw(get_params);
 use Params::Validate::Strict qw(validate_strict);
 use Readonly;
@@ -54,6 +55,10 @@ Readonly::Scalar my $UNPRINTABLE_BYTES_RE => qr/
 	| \xE2 \x81 [\xA6-\xA9]          # isolates
 /x;
 
+# Signals that mean "stop now": Ctrl-C is INT, Ctrl-\ is QUIT; TERM and
+# HUP come from kill, service managers and closed terminals
+Readonly::Array my @INTERRUPT_SIGNALS => qw(INT QUIT TERM HUP);
+
 # Plural category used when a language has no rule of its own
 Readonly::Scalar my $PLURAL_OTHER => 'other';
 
@@ -91,6 +96,7 @@ our %MESSAGES = (
 		},
 		fatal              => 'access2csv: %s',
 		invalid_name       => 'the name contains a NUL byte',
+		interrupted_reading => 'Interrupted by SIG%s while reading the database from standard input',
 		interrupted        => 'Interrupted by SIG%s: stopped, and the table being exported was discarded',
 		invalid_utf8       => 'Table %s, line %d: output of mdb-export is not valid UTF-8',
 		log_failed         => 'Cannot write to the log: %s',
@@ -112,6 +118,9 @@ our %MESSAGES = (
 			one   => 'Processed %d table, %d failed',
 			other => 'Processed %d tables, %d failed',
 		},
+		stdin_empty        => 'Standard input is empty: no database was piped in',
+		stdin_is_terminal  => 'Standard input is a terminal: pipe the database in, or give its file name',
+		stdin_read_failed  => 'Cannot read standard input: %s',
 		unknown_message    => 'Unknown message key: %s',
 		unknown_tables     => {
 			one   => 'Table not found in database: %s',
@@ -532,6 +541,21 @@ sub _carp_i18n :Protected {
 
 	carp($self->_printable($self->i18n($key, $args)));
 	return $self;
+}
+
+# _interrupt_signals
+# Purpose:        List the "stop now" signals that this program may take
+#                 over: those that exist on this system and that nobody
+#                 has set a handler for.  Used by code that must clean up
+#                 (delete temporary files) when stopped, since Perl's
+#                 default action for these signals skips all clean-up.
+# Entry Criteria: None.
+# Exit Status:    Returns an arrayref of signal names, e.g. ['INT', 'TERM'].
+#                 The caller localises %SIG for exactly these names.
+# Side Effects:   None.
+sub _interrupt_signals :Protected {
+	my %exists = map { $_ => 1 } split ' ', $Config{sig_name};
+	return [ grep { $exists{$_} && ($SIG{$_} // 'DEFAULT') eq 'DEFAULT' } @INTERRUPT_SIGNALS ];
 }
 
 # _printable

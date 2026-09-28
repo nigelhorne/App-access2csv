@@ -57,10 +57,6 @@ Readonly::Scalar my $UNTAINT_RE => qr/\A([^\x00]+)\z/s;
 # perlsec); removed for the mdbtools processes
 Readonly::Array my @UNSAFE_ENV => qw(IFS CDPATH ENV BASH_ENV);
 
-# Signals that mean "stop now" (Ctrl-C is INT, Ctrl-\ is QUIT; TERM and
-# HUP come from kill, service managers and closed terminals)
-Readonly::Array my @INTERRUPT_SIGNALS => qw(INT QUIT TERM HUP);
-
 # Encoding objects, looked up once: calling Encode::decode/encode by name
 # repeats the lookup for every line, which made conversion about 4 times
 # slower on large tables.  (Plain lexicals, not Readonly: Readonly's deep
@@ -461,7 +457,10 @@ only print what would be exported.
 
 =over 4
 
-=item C<database> (string, required) - the path of the C<.mdb> or C<.accdb> file
+=item C<database> (string, required) - the path of the C<.mdb> or C<.accdb> file.
+The name is taken literally: C<-> is a file called C<->.  (Reading from
+standard input is a feature of the command-line program; see
+L<App::Access2CSV/Reading the database from standard input>.)
 
 =back
 
@@ -692,8 +691,7 @@ sub run {
 	# they raise an exception instead.  A handler the caller has set is
 	# left alone; everything is restored when run() returns.
 	local $self->{interrupted};
-	my %names = map { $_ => 1 } split ' ', $Config{sig_name};
-	my @ours = grep { $names{$_} && ($SIG{$_} // 'DEFAULT') eq 'DEFAULT' } @INTERRUPT_SIGNALS;
+	my @ours = @{ $self->_interrupt_signals() };
 	local @SIG{@ours} = (sub {
 		$self->{interrupted} = $_[0];
 		die $self->_printable($self->i18n('interrupted', { params => [$_[0]] })), "\n";

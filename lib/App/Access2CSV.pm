@@ -13,6 +13,7 @@ use parent 'App::Access2CSV::I18N';
 
 use App::Access2CSV::Exporter;
 use Fcntl qw(O_APPEND O_CREAT O_WRONLY);
+use File::Temp;
 use Getopt::Long qw(GetOptionsFromArray);
 use Log::Abstraction;
 use Pod::Usage qw(pod2usage);
@@ -36,6 +37,14 @@ Readonly::Scalar my $EXIT_FATAL   => 3;
 Readonly::Scalar my $POD_SYNOPSIS => 0;
 Readonly::Scalar my $POD_OPTIONS  => 1;
 Readonly::Scalar my $POD_FULL     => 2;
+
+# The database name that means "read it from standard input"
+Readonly::Scalar my $STDIN_NAME => '-';
+
+# Standard input is copied, in chunks of this many bytes, to a private
+# temporary file named from this template (mdbtools need a real file)
+Readonly::Scalar my $READ_CHUNK     => 65_536;
+Readonly::Scalar my $STDIN_TEMPLATE => 'access2csv-stdin-XXXXXX';
 
 # Log levels: --verbose adds the debug messages
 Readonly::Scalar my $LOG_LEVEL         => 'info';
@@ -76,6 +85,9 @@ Version 0.001.0
 
 	# Make files that Excel opens correctly, replace old files, no log file
 	access2csv --encoding utf8-bom --overwrite --no-log shop.accdb
+
+	# Read the database from standard input ("-"), e.g. from a download
+	curl -s https://example.com/shop.accdb | access2csv --output-dir exports -
 
 	# Nightly job: quiet, with a log in a fixed place, and stop on failure
 	access2csv --no-progress --log /var/log/access2csv.log \
@@ -119,6 +131,19 @@ C<_> in front.  An empty name becomes C<unnamed>.
 If two tables would get the same file name, the second one gets C<_2>,
 the third C<_3>, and so on.  Upper and lower case count as the same here,
 because Windows and macOS treat C<Orders.csv> and C<ORDERS.csv> as one file.
+
+=head2 Reading the database from standard input
+
+If the database name is C<->, the database is read from standard input
+instead of a file, so it can be piped in.  mdbtools can only read a real
+file, so the data is first copied to a private temporary file (readable
+by you only) in the temporary folder (C<TMPDIR>, or F</tmp>), and that
+copy is deleted when the program ends - whether it succeeds, fails or is
+interrupted.
+
+C<-> is refused if standard input is a terminal (there is nothing to
+read but the keyboard), and empty input is an error.  To use a file that
+is really called C<->, write F<./->.
 
 =head2 How files are written
 
@@ -212,7 +237,8 @@ The program ends with one of these numbers.  Scripts can test it.
 	   --help and --man.
 	1  At least one table was not exported.  The other tables were.
 	2  The command line was wrong, for example an unknown option or no
-	   database name.
+	   database name, or "-" was given while standard input is a
+	   terminal.
 	3  A fatal error happened before any table was exported, for example
 	   the database does not exist or mdbtools is not installed.
 
@@ -271,6 +297,11 @@ ignored, so a program planted in the current folder is never run.
 Choose the language of messages (see L<App::Access2CSV::I18N>).  Only the
 language code at the start is used; any other value means English.
 
+=item C<TMPDIR>
+
+Where a database read from standard input (C<->) is copied while it is
+exported.  Default: F</tmp>.
+
 =item C<MDB_ICONV>
 
 Not read by this program, but by mdbtools: it sets the character set
@@ -303,6 +334,11 @@ checked first and only then marked as safe.  Under C<-T>, Perl also
 refuses to start mdbtools while C<PATH> contains a folder other users can
 write to; the program then stops with "Insecure directory in
 $ENV{PATH}".
+
+=item * B<Private copies of piped input.>  A database read from standard
+input is copied with L<File::Temp> (a new, unpredictable name, readable
+by you only) and deleted when the program ends, also after an error or
+an interruption.
 
 =item * B<Safe file names.>  Table names cannot place a file outside the
 output folder, and control characters - including invisible
@@ -357,6 +393,13 @@ the program to end.
 
 =item * B<Pass a list, not an array reference.>  Write
 C<< App::Access2CSV->run(@args) >>, not C<< App::Access2CSV->run(\@args) >>.
+
+=item * B<A file called "-".>  C<-> means standard input, even after
+C<-->.  Write F<./-> for a file with that name.
+
+=item * B<Piped databases need temporary space.>  The whole database is
+copied to the temporary folder first; if that folder is small, set
+C<TMPDIR> to one with room.
 
 =back
 
@@ -435,7 +478,9 @@ they were.
 
 Valid and invalid values (tested in F<t/domain.t>):
 
-	database names  exactly 1; 0 or 2 or more give exit status 2
+	database names  exactly 1; 0 or 2 or more give exit status 2.
+	                "-" means standard input (exit 2 if it is a
+	                terminal, 3 if it is empty or unreadable)
 	--encoding      utf8, utf8-bom or cp1252; anything else gives exit 3
 	--table         0 times (all tables), once, or many times; names
 	                may be non-ASCII
@@ -461,6 +506,16 @@ Valid and invalid values (tested in F<t/domain.t>):
 	| Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
 	|                                     | it was empty, or more than    |                              |
 	|                                     | one was given                 |                              |
+	| Standard input is a terminal: pipe  | "-" was given, but nothing is | Pipe the database in, or     |
+	|  the database in, or give its file  | piped in                      | give its file name           |
+	|  name (exit 2)                      |                               |                              |
+	| access2csv: Standard input is empty:| "-" was given, but the pipe   | Check the command that       |
+	|  no database was piped in (exit 3)  | delivered nothing             | produces the database        |
+	| access2csv: Cannot read standard    | Reading the pipe failed; E is | See E                        |
+	|  input: E (exit 3)                  | the reason                    |                              |
+	| access2csv: Interrupted by SIGx     | Stopped (Ctrl-C, kill) while  | Run again                    |
+	|  while reading the database from    | waiting for piped input; the  |                              |
+	|  standard input (exit 3)            | partial copy was deleted      |                              |
 	| access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
 	|  E (exit 3)                         | written; E is the reason from | or --no-log                  |
 	|                                     | the operating system, "no     |                              |
@@ -501,6 +556,12 @@ sub run {
 	if(!defined $status) {
 		# Any croak from here on is a fatal error: report it, don't die
 		$status = eval {
+			# "-" means standard input.  mdbtools can only read a real file,
+			# so the data is copied to a private temporary file first; the
+			# copy is deleted when $piped goes out of scope, whatever happens
+			my $piped = ($argv[0] eq $STDIN_NAME) ? $class->_read_stdin() : undef;
+			my $database = $piped ? $piped->filename() : $argv[0];
+
 			my $logger = $class->_make_logger(\%opt);
 			# TODO: FSM Discrepancy - invalid option values (e.g. --encoding
 			# latin1) croak here, in Exporter->new, after OPENING LOG has
@@ -510,7 +571,7 @@ sub run {
 				map({ $_ => $opt{$_} } grep { $_ ne 'log' } keys %opt),
 				($logger ? (logger => $logger) : ()),
 			);
-			$exporter->run($argv[0]);
+			$exporter->run($database);
 		};
 		$status = $class->_report_fatal($@, $opt{verbose}) unless defined $status;
 	}
@@ -555,6 +616,11 @@ sub _parse_options :Private {
 	# turns undef into "" first.
 	if(@{$argv} != 1 || !length($argv->[0] // '')) {
 		return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS, $class->i18n('missing_database'));
+	}
+
+	# Reading a database from a terminal would only wait for keystrokes
+	if($argv->[0] eq $STDIN_NAME && -t STDIN) {
+		return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS, $class->i18n('stdin_is_terminal'));
 	}
 	return;
 }
@@ -623,6 +689,52 @@ sub _make_logger :Private {
 	# break that promise
 	$logger or $class->_croak_i18n('log_open_failed', { params => [$file, $class->i18n('logger_unavailable')] });
 	return $logger;
+}
+
+# _read_stdin
+# Purpose:        Copy the database piped in on standard input to a
+#                 private temporary file, because mdbtools can only read
+#                 a real, seekable file.
+# Entry Criteria: STDIN is not a terminal (checked by _parse_options).
+# Exit Status:    Returns the File::Temp object; the file is deleted when
+#                 the object is destroyed.  Croaks if the input is empty,
+#                 cannot be read, cannot be stored, or the copy is
+#                 interrupted.
+# Side Effects:   Reads all of STDIN; writes a file (mode 0600) in the
+#                 temporary folder (TMPDIR).
+sub _read_stdin :Private {
+	my $class = shift;
+
+	# Perl's default action for INT/TERM/... exits at once, which would
+	# leave the copy behind in the temporary folder.  Raise an exception
+	# instead, so the File::Temp object is destroyed and deletes the file.
+	my $interrupted;
+	my @ours = @{ $class->_interrupt_signals() };
+	local @SIG{@ours} = (sub { $interrupted = $_[0]; die "\n" }) x @ours;
+
+	my $copy = File::Temp->new(TEMPLATE => $STDIN_TEMPLATE, TMPDIR => 1, UNLINK => 1);
+	binmode $copy, ':raw';
+	binmode STDIN, ':raw';
+
+	# Copy in chunks: a large database is never held in memory at once
+	my $total = 0;
+	local $@;
+	eval {
+		while(my $got = read(STDIN, my $buffer, $READ_CHUNK)) {
+			print {$copy} $buffer;
+			$total += $got;
+		}
+		1;
+	} or do {
+		$class->_croak_i18n('interrupted_reading', { params => [$interrupted] }) if $interrupted;
+		$class->_croak_i18n('stdin_read_failed', { params => [_failure_reason($@)] });
+	};
+
+	$class->_croak_i18n('stdin_empty') unless $total;
+
+	# Make sure every byte reached the file (e.g. the disk may be full)
+	$copy->flush() or $class->_croak_i18n('write_failed', { params => [$copy->filename(), "$!"] });
+	return $copy;
 }
 
 # _failure_reason
@@ -732,10 +844,14 @@ You do not need to read this section to use the program.
 	│ ¬ parsed(argv?) ⇒ status! = 2
 	│ parsed(argv?) ∧ help ∈ dom opts ⇒ status! = 0
 	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
-	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ⇒
-	│   (fatal(Exporter.Run(head rest)) ⇒ status! = 3) ∧
-	│   (¬ fatal(Exporter.Run(head rest)) ⇒
-	│        status! = Exporter.Run(head rest).status!)
+	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧ head rest = "-" ∧
+	│   isTerminal(stdin) ⇒ status! = 2
+	│ db = (if head rest = "-" then copy(stdin) else head rest)
+	│ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧
+	│   ¬ (head rest = "-" ∧ isTerminal(stdin)) ⇒
+	│   (fatal(Exporter.Run(db)) ⇒ status! = 3) ∧
+	│   (¬ fatal(Exporter.Run(db)) ⇒ status! = Exporter.Run(db).status!)
+	│ files'(copy(stdin)) undefined          -- the copy never outlives the run
 	└────────────────────────────────────────────────────────────
 
 =head2 Printable output
@@ -797,6 +913,13 @@ happens on the way.
 	       |      |   +------------------+          to STDERR
 	       v      v            |
 	  return 0  return 1   return 3
+
+Not drawn above: when the database is C<->, there is one more state,
+READING STDIN, between PARSING and OPENING LOG.  Entry is refused (USAGE
+ERROR, return 2) if standard input is a terminal.  Its action: copy
+standard input to a private temporary file.  Empty or unreadable input,
+or an interruption, goes to FATAL (return 3).  The copy is deleted when
+the run ends, whichever way it ends.
 
 =head1 AUTHOR
 
