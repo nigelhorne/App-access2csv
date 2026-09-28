@@ -126,7 +126,8 @@ For more control, use [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3
 - **--log** _FILE_
 
     Add log messages to the end of _FILE_.  Default: `access2csv.log` in
-    the current folder.  An empty name (`--log ''`) means no log.
+    the current folder.  An empty name (`--log ''`) means no log.  _FILE_
+    must not be a symbolic link (see ["SECURITY"](#security)).
 
 - **--no-log**
 
@@ -187,6 +188,54 @@ uses the system code page, so names outside that code page may not work.
 ### Messages
 
 All messages that the program prints and logs are in plain ASCII English.
+
+## Environment
+
+- `PATH`
+
+    Used to find `mdb-tables`, `mdb-export` and `mdb-count`.  Only
+    absolute folders in `PATH` are used: relative entries such as `.` are
+    ignored, so a program planted in the current folder is never run.
+
+- `LANGUAGE`, `LC_ALL`, `LC_MESSAGES`, `LANG`
+
+    Choose the language of messages (see [App::Access2CSV::I18N](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AI18N)).  Only the
+    language code at the start is used; any other value means English.
+
+- `MDB_ICONV`
+
+    Not read by this program, but by mdbtools: it sets the character set
+    mdbtools converts to.  Leave it unset, so that the output is UTF-8.
+
+## Security
+
+The program treats the database as untrusted: an Access file received
+from someone else may contain table names and data designed to cause
+harm.
+
+- **No shell, no option injection.**  Programs are run directly
+(never through a shell), and table and file names are passed after a
+`--` marker, so names containing `` ; | $( ) ` `` or starting with `-`
+are only ever names.
+- **No planted programs.**  Relative `PATH` entries are ignored
+(see ["ENVIRONMENT"](#environment)).
+- **Safe file names.**  Table names cannot place a file outside the
+output folder, and control characters - including invisible
+text-direction controls and C1 controls - are replaced by `_`.
+- **Safe terminal and log output.**  Table names and mdbtools error
+text are printed with control characters shown as escapes such as
+`\x1B`.  So a table name cannot retitle or clear your terminal, hide
+text, or forge lines in the log.
+- **No writing through symbolic links.**  If the log file is a
+symbolic link (for example one planted in a shared folder such as
+`/tmp`), the program stops instead of writing to the file it points at.
+Existing CSV files that are links are replaced, never written through.
+- **Spreadsheet formulas are NOT neutralised.**  A value such as
+`=cmd|' /C calc'!A0` is copied into the CSV exactly as it is in the
+database, because changing data would corrupt genuine values.  Some
+spreadsheet programs run such formulas when a CSV is opened.  Do not open
+CSV files exported from an untrusted database in a spreadsheet without
+checking them, or import them as text.
 
 ## Common Pitfalls
 
@@ -317,8 +366,9 @@ Valid and invalid values (tested in `t/domain.t`):
     |                                     | one was given                 |                              |
     | access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
     |  E (exit 3)                         | written; E is the reason from | or --no-log                  |
-    |                                     | the operating system, or "no  |                              |
-    |                                     | logger was created"           |                              |
+    |                                     | the operating system, "no     |                              |
+    |                                     | logger was created", or "it   |                              |
+    |                                     | is a symbolic link"           |                              |
     | access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See MESSAGES in              |
     |                                     | exporter                      | App::Access2CSV::Exporter    |
     +-------------------------------------+-------------------------------+------------------------------+
@@ -382,6 +432,21 @@ You do not need to read this section to use the program.
     │   (fatal(Exporter.Run(head rest)) ⇒ status! = 3) ∧
     │   (¬ fatal(Exporter.Run(head rest)) ⇒
     │        status! = Exporter.Run(head rest).status!)
+    └────────────────────────────────────────────────────────────
+```
+
+### Printable Output
+
+Every message shown on the terminal or written to the log first passes
+through this filter.  `CTRL` is the set of control characters: C0
+except tab, DEL, C1 and the text-direction controls.
+
+```
+    ┌─ Printable ────────────────────────────────────────────────
+    │ text? : seq CHAR ; shown! : seq CHAR
+    ├────────────────────────────────────────────────────────────
+    │ shown! = ⁀/ ⟨ c : text? • (if c ∈ CTRL then escape(c) else ⟨c⟩) ⟩
+    │ ran shown! ∩ CTRL = ∅
     └────────────────────────────────────────────────────────────
 ```
 

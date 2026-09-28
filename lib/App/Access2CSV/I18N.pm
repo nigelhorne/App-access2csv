@@ -31,6 +31,14 @@ Readonly::Hash my %NEUTRAL_LOCALES => (C => 1, POSIX => 1);
 # Environment variables consulted, most specific first (GNU gettext order)
 Readonly::Array my @LOCALE_VARIABLES => qw(LANGUAGE LC_ALL LC_MESSAGES LANG);
 
+# Characters that a terminal or log viewer would act on rather than show:
+# C0 controls except tab (ESC starts escape sequences, CR overwrites the
+# line, LF forges new log lines, BEL rings), DEL, and the invisible
+# text-direction controls.  C1 controls are matched as characters in
+# Perl character strings and as their UTF-8 bytes in byte strings.
+Readonly::Scalar my $UNPRINTABLE_RE => qr/[\x00-\x08\x0A-\x1F\x7F]|[\x{80}-\x{9F}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/;
+Readonly::Scalar my $UNPRINTABLE_BYTES_RE => qr/[\x00-\x08\x0A-\x1F\x7F]|\xC2[\x80-\x9F]|\xE2\x80[\x8E\x8F\xAA-\xAE]|\xE2\x81[\xA6-\xA9]/;
+
 # Plural category used when a language has no rule of its own
 Readonly::Scalar my $PLURAL_OTHER => 'other';
 
@@ -69,6 +77,7 @@ our %MESSAGES = (
 		fatal              => 'access2csv: %s',
 		invalid_utf8       => 'Table %s, line %d: output of mdb-export is not valid UTF-8',
 		log_failed         => 'Cannot write to the log: %s',
+		log_is_symlink     => 'it is a symbolic link',
 		log_open_failed    => 'Cannot open log file %s: %s',
 		logger_unavailable => 'no logger was created',
 		missing_database   => 'Missing database filename',
@@ -206,7 +215,13 @@ class and its subclasses:
 (with L<Carp/croak>) with the translated message.  It never returns.
 
 =item * C<< $self->_carp_i18n($key, \%args) >> - warns (with
-L<Carp/carp>) with the translated message.  It returns C<$self>.
+L<Carp/carp>) with the translated message, with control characters
+escaped.  It returns C<$self>.
+
+=item * C<< $self->_printable($text) >> - returns C<$text> with control
+characters (C0 except tab, DEL, C1, and text-direction controls) shown
+as escapes such as C<\x1B>, so that text from an untrusted database is
+safe to print or log.
 
 =back
 
@@ -497,8 +512,28 @@ sub _croak_i18n :Protected {
 sub _carp_i18n :Protected {
 	my ($self, $key, $args) = @_;
 
-	carp($self->i18n($key, $args));
+	carp($self->_printable($self->i18n($key, $args)));
 	return $self;
+}
+
+# _printable
+# Purpose:        Make text safe to show on a terminal or write to a log,
+#                 by replacing control characters with visible escapes
+#                 such as \x1B.  Text may come from a hostile database
+#                 (table names, mdbtools error output).
+# Entry Criteria: $text is a string (Perl characters or UTF-8 bytes) or undef.
+# Exit Status:    Returns the escaped string ('' for undef).
+# Side Effects:   None.
+sub _printable :Protected {
+	my ($self, $text) = @_;
+
+	$text //= '';
+	if(utf8::is_utf8($text)) {
+		$text =~ s/($UNPRINTABLE_RE)/sprintf(ord($1) > 0xFF ? '\\x{%X}' : '\\x%02X', ord $1)/ge;
+	} else {
+		$text =~ s{($UNPRINTABLE_BYTES_RE)}{join(q{}, map { sprintf(q{\\x%02X}, ord) } split(//, $1))}ge;
+	}
+	return $text;
 }
 
 # _language

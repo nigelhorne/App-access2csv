@@ -116,6 +116,7 @@ my %LEDGER = map { $_ => 1 } (
 	'app: Missing database filename',
 	'app: Cannot open log file',
 	'app: no logger was created',
+	'app: it is a symbolic link',
 	'app: access2csv: MESSAGE',
 );
 
@@ -721,6 +722,12 @@ subtest 'app: exit 3 for fatal errors, as one clean line' => sub {
 	is($status, $CONFIG{exit_fatal}, 'log cannot be opened');
 	is($stderr, "access2csv: Cannot open log file $log: $OS{enoent}\n", 'exact line');
 	ticked('app: Cannot open log file');
+
+	symlink("$dir/elsewhere", "$dir/link.log") or die $!;
+	($status, undef, $stderr) = cli('--log', "$dir/link.log", $db);
+	is($status, $CONFIG{exit_fatal}, 'log file is a symbolic link');
+	is($stderr, "access2csv: Cannot open log file $dir/link.log: it is a symbolic link\n", 'exact reason');
+	ticked('app: it is a symbolic link');
 
 	{
 		my $lg = mock_scoped('Log::Abstraction::new' => sub { return });

@@ -12,6 +12,7 @@ BEGIN { $Sub::Private::config{mode} = 'enforce' }
 use parent 'App::Access2CSV::I18N';
 
 use App::Access2CSV::Exporter;
+use Fcntl qw(O_APPEND O_CREAT O_WRONLY);
 use Getopt::Long qw(GetOptionsFromArray);
 use Log::Abstraction;
 use Pod::Usage qw(pod2usage);
@@ -185,7 +186,8 @@ Default: C<utf8>.
 =item B<--log> I<FILE>
 
 Add log messages to the end of I<FILE>.  Default: F<access2csv.log> in
-the current folder.  An empty name (C<--log ''>) means no log.
+the current folder.  An empty name (C<--log ''>) means no log.  I<FILE>
+must not be a symbolic link (see L</SECURITY>).
 
 =item B<--no-log>
 
@@ -252,6 +254,67 @@ uses the system code page, so names outside that code page may not work.
 =head2 Messages
 
 All messages that the program prints and logs are in plain ASCII English.
+
+=head1 ENVIRONMENT
+
+=over 4
+
+=item C<PATH>
+
+Used to find C<mdb-tables>, C<mdb-export> and C<mdb-count>.  Only
+absolute folders in C<PATH> are used: relative entries such as C<.> are
+ignored, so a program planted in the current folder is never run.
+
+=item C<LANGUAGE>, C<LC_ALL>, C<LC_MESSAGES>, C<LANG>
+
+Choose the language of messages (see L<App::Access2CSV::I18N>).  Only the
+language code at the start is used; any other value means English.
+
+=item C<MDB_ICONV>
+
+Not read by this program, but by mdbtools: it sets the character set
+mdbtools converts to.  Leave it unset, so that the output is UTF-8.
+
+=back
+
+=head1 SECURITY
+
+The program treats the database as untrusted: an Access file received
+from someone else may contain table names and data designed to cause
+harm.
+
+=over 4
+
+=item * B<No shell, no option injection.>  Programs are run directly
+(never through a shell), and table and file names are passed after a
+C<--> marker, so names containing C<; | $( ) `> or starting with C<->
+are only ever names.
+
+=item * B<No planted programs.>  Relative C<PATH> entries are ignored
+(see L</ENVIRONMENT>).
+
+=item * B<Safe file names.>  Table names cannot place a file outside the
+output folder, and control characters - including invisible
+text-direction controls and C1 controls - are replaced by C<_>.
+
+=item * B<Safe terminal and log output.>  Table names and mdbtools error
+text are printed with control characters shown as escapes such as
+C<\x1B>.  So a table name cannot retitle or clear your terminal, hide
+text, or forge lines in the log.
+
+=item * B<No writing through symbolic links.>  If the log file is a
+symbolic link (for example one planted in a shared folder such as
+F</tmp>), the program stops instead of writing to the file it points at.
+Existing CSV files that are links are replaced, never written through.
+
+=item * B<Spreadsheet formulas are NOT neutralised.>  A value such as
+C<=cmd|' /C calc'!A0> is copied into the CSV exactly as it is in the
+database, because changing data would corrupt genuine values.  Some
+spreadsheet programs run such formulas when a CSV is opened.  Do not open
+CSV files exported from an untrusted database in a spreadsheet without
+checking them, or import them as text.
+
+=back
 
 =head1 COMMON PITFALLS
 
@@ -389,8 +452,9 @@ Valid and invalid values (tested in F<t/domain.t>):
 	|                                     | one was given                 |                              |
 	| access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
 	|  E (exit 3)                         | written; E is the reason from | or --no-log                  |
-	|                                     | the operating system, or "no  |                              |
-	|                                     | logger was created"           |                              |
+	|                                     | the operating system, "no     |                              |
+	|                                     | logger was created", or "it   |                              |
+	|                                     | is a symbolic link"           |                              |
 	| access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See MESSAGES in              |
 	|                                     | exporter                      | App::Access2CSV::Exporter    |
 	+-------------------------------------+-------------------------------+------------------------------+
@@ -516,9 +580,18 @@ sub _make_logger :Private {
 	# the log without telling anyone, so prove that we can append first.
 	# The eval must not overwrite the caller's $@.
 	my $file = $opt->{log};
+
+	# Never write through a symbolic link: in a shared folder such as /tmp
+	# anyone could plant "access2csv.log" pointing at a file of yours
+	if(-l $file) {
+		$class->_croak_i18n('log_open_failed', { params => [$file, $class->i18n('log_is_symlink')] });
+	}
+
+	# O_NOFOLLOW (where the OS has it) closes the gap between the -l test
+	# above and the open, when the probe itself creates the file
 	local $@;
 	eval {
-		open my $fh, '>>', $file;
+		sysopen my $fh, $file, O_WRONLY | O_APPEND | O_CREAT | _no_follow();
 		close $fh;
 		1;
 	} or $class->_croak_i18n('log_open_failed', { params => [$file, (ref($@) && $@->can('errno')) ? $@->errno() : "$!"] });
@@ -532,6 +605,15 @@ sub _make_logger :Private {
 	# break that promise
 	$logger or $class->_croak_i18n('log_open_failed', { params => [$file, $class->i18n('logger_unavailable')] });
 	return $logger;
+}
+
+# _no_follow
+# Purpose:        The O_NOFOLLOW open flag, or 0 where the OS lacks it.
+# Entry Criteria: None.
+# Exit Status:    Returns an integer flag.
+# Side Effects:   None.
+sub _no_follow :Private {
+	return eval { Fcntl::O_NOFOLLOW() } || 0;
 }
 
 # _report_fatal
@@ -549,7 +631,8 @@ sub _report_fatal :Private {
 	$text =~ s/ at \S+ line \d+\.?\n?\z// unless $verbose;
 	chomp $text;
 
-	print STDERR $class->i18n('fatal', { params => [$text] }), "\n";
+	# The reason may quote a hostile table name or file name: escape it
+	print STDERR $class->_printable($class->i18n('fatal', { params => [$text] })), "\n";
 	return $EXIT_FATAL;
 }
 
@@ -608,6 +691,19 @@ You do not need to read this section to use the program.
 	│   (fatal(Exporter.Run(head rest)) ⇒ status! = 3) ∧
 	│   (¬ fatal(Exporter.Run(head rest)) ⇒
 	│        status! = Exporter.Run(head rest).status!)
+	└────────────────────────────────────────────────────────────
+
+=head2 Printable output
+
+Every message shown on the terminal or written to the log first passes
+through this filter.  C<CTRL> is the set of control characters: C0
+except tab, DEL, C1 and the text-direction controls.
+
+	┌─ Printable ────────────────────────────────────────────────
+	│ text? : seq CHAR ; shown! : seq CHAR
+	├────────────────────────────────────────────────────────────
+	│ shown! = ⁀/ ⟨ c : text? • (if c ∈ CTRL then escape(c) else ⟨c⟩) ⟩
+	│ ran shown! ∩ CTRL = ∅
 	└────────────────────────────────────────────────────────────
 
 =head1 STATE DIAGRAM

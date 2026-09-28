@@ -180,6 +180,11 @@ permissions (0666 minus your umask).
 An exporter can be used for more than one C<run>.  Each C<run> starts
 again with the same file names, so running twice gives the same files.
 
+The mdbtools programs are looked up only in absolute C<PATH> folders, so
+a program planted in the current folder is never run.  Table names are
+printed and logged with control characters escaped, so a hostile name
+cannot send escape sequences to your terminal.
+
 Table names and the database path are handed to mdbtools as separate
 arguments, never through a shell, and after a C<--> marker.  So names
 containing shell characters (C<; | E<gt> $( )>), spaces or newlines, or
@@ -702,7 +707,10 @@ sub _verify_dependencies :Private {
 sub _find_program :Private {
 	my ($self, $program) = @_;
 
-	my $path = which($program);
+	# Only absolute paths are trusted.  A relative entry in PATH (".", or
+	# an empty one) would run whatever file of that name is in the current
+	# folder - a classic way to plant a program.
+	my ($path) = grep { defined && File::Spec->file_name_is_absolute($_) } which($program);
 	if($path && $self->{verbose}) {
 		$self->_log(debug => 'program_found', { params => [$program, $path] });
 	}
@@ -820,7 +828,7 @@ sub _export_all :Private {
 		my $table = $tables->[$index];
 		# Progress goes to STDERR so that STDOUT can be redirected cleanly
 		if($self->{progress}) {
-			print STDERR $self->i18n('progress', { params => [$index + 1, $total, $table] }), "\n";
+			print STDERR $self->_printable($self->i18n('progress', { params => [$index + 1, $total, $table] })), "\n";
 		}
 
 		# One bad table should not stop the rest from being exported
@@ -1018,6 +1026,16 @@ sub _csv_filename :Protected {
 	# and trailing whitespace; Windows also silently drops trailing dots
 	$name =~ s/$UNSAFE_CHARS_RE/_/g;
 	$name =~ s/$BIDI_CONTROLS_RE/_/g;
+
+	# C1 controls (U+0080-U+009F; U+009B acts like ESC [ on terminals).
+	# In a byte string they must be matched as their UTF-8 form, because a
+	# bare [\x80-\x9F] would also hit the continuation bytes of ordinary
+	# characters such as the Euro sign (E2 82 AC)
+	if(utf8::is_utf8($name)) {
+		$name =~ s/[\x{80}-\x{9F}]/_/g;
+	} else {
+		$name =~ s/\xC2[\x80-\x9F]/_/g;
+	}
 	$name =~ s/\A\s+//;
 	$name =~ s/[\s.]+\z//;
 
@@ -1060,7 +1078,10 @@ sub _dry_run :Private {
 	foreach my $table (@{$tables}) {
 		my @row = ($table);
 		push @row, $self->_count_rows($database, $table) if $counts;
-		printf $format, @row, $self->_csv_filename($table);
+		# The table name comes from the database, so show it escaped (the
+		# file name is already safe; escaping it too costs nothing)
+		$row[0] = $self->_printable($row[0]);
+		printf $format, @row, $self->_printable($self->_csv_filename($table));
 	}
 	print "\n";
 
@@ -1093,7 +1114,9 @@ sub _log :Private {
 	# must not make a finished export look failed.  Say so once and stop
 	# using it.
 	local $@;
-	if(!eval { $logger->$level($self->i18n($key, $args)); 1 }) {
+	# Escaped, so a hostile table name cannot forge log lines (CR, LF)
+	# or send escape sequences to whoever views the log
+	if(!eval { $logger->$level($self->_printable($self->i18n($key, $args))); 1 }) {
 		my $error = $@;
 		chomp $error;
 		delete $self->{logger};
