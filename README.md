@@ -218,7 +218,16 @@ harm.
 `--` marker, so names containing `` ; | $( ) ` `` or starting with `-`
 are only ever names.
 - **No planted programs.**  Relative `PATH` entries are ignored
-(see ["ENVIRONMENT"](#environment)).
+(see ["ENVIRONMENT"](#environment)).  The mdbtools programs are started with a cleaned
+environment: `PATH` holds only absolute folders, and `IFS`, `CDPATH`,
+`ENV` and `BASH_ENV` are removed.
+- **Taint mode.**  The program runs under Perl's taint mode
+(`perl -T`).  Every outside value - the database path, table names,
+`--output-dir`, `--log` and the program paths found in `PATH` - is
+checked first and only then marked as safe.  Under `-T`, Perl also
+refuses to start mdbtools while `PATH` contains a folder other users can
+write to; the program then stops with "Insecure directory in
+$ENV{PATH}".
 - **Safe file names.**  Table names cannot place a file outside the
 output folder, and control characters - including invisible
 text-direction controls and C1 controls - are replaced by `_`.

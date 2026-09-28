@@ -18,6 +18,7 @@ use Log::Abstraction;
 use Pod::Usage qw(pod2usage);
 use Readonly;
 use Return::Set qw(set_return);
+use Scalar::Util qw(blessed);
 use Sub::Private;
 
 our $VERSION = '0.001.0';
@@ -291,7 +292,17 @@ C<--> marker, so names containing C<; | $( ) `> or starting with C<->
 are only ever names.
 
 =item * B<No planted programs.>  Relative C<PATH> entries are ignored
-(see L</ENVIRONMENT>).
+(see L</ENVIRONMENT>).  The mdbtools programs are started with a cleaned
+environment: C<PATH> holds only absolute folders, and C<IFS>, C<CDPATH>,
+C<ENV> and C<BASH_ENV> are removed.
+
+=item * B<Taint mode.>  The program runs under Perl's taint mode
+(C<perl -T>).  Every outside value - the database path, table names,
+C<--output-dir>, C<--log> and the program paths found in C<PATH> - is
+checked first and only then marked as safe.  Under C<-T>, Perl also
+refuses to start mdbtools while C<PATH> contains a folder other users can
+write to; the program then stops with "Insecure directory in
+$ENV{PATH}".
 
 =item * B<Safe file names.>  Table names cannot place a file outside the
 output folder, and control characters - including invisible
@@ -576,9 +587,6 @@ sub _make_logger :Private {
 
 	return unless length($opt->{log} // '');
 
-	# Log::Abstraction silently ignores an unwritable file, which would lose
-	# the log without telling anyone, so prove that we can append first.
-	# The eval must not overwrite the caller's $@.
 	my $file = $opt->{log};
 
 	# Never write through a symbolic link: in a shared folder such as /tmp
@@ -587,14 +595,20 @@ sub _make_logger :Private {
 		$class->_croak_i18n('log_open_failed', { params => [$file, $class->i18n('log_is_symlink')] });
 	}
 
+	# The log file is the invoking user's own choice and is not a link, so
+	# it is untainted (for taint mode); a NUL byte cannot name a file at all
+	($file) = $file =~ /\A([^\x00]+)\z/s or $class->_croak_i18n('log_open_failed', { params => [$opt->{log}, $class->i18n('invalid_name')] });
+
+	# Log::Abstraction silently ignores an unwritable file, which would lose
+	# the log without telling anyone, so prove that we can append first.
 	# O_NOFOLLOW (where the OS has it) closes the gap between the -l test
-	# above and the open, when the probe itself creates the file
+	# above and the open.  The eval must not overwrite the caller's $@.
 	local $@;
 	eval {
 		sysopen my $fh, $file, O_WRONLY | O_APPEND | O_CREAT | _no_follow();
 		close $fh;
 		1;
-	} or $class->_croak_i18n('log_open_failed', { params => [$file, (ref($@) && $@->can('errno')) ? $@->errno() : "$!"] });
+	} or $class->_croak_i18n('log_open_failed', { params => [$file, _failure_reason($@)] });
 
 	my $logger = Log::Abstraction->new(
 		logger => $file,
@@ -605,6 +619,23 @@ sub _make_logger :Private {
 	# break that promise
 	$logger or $class->_croak_i18n('log_open_failed', { params => [$file, $class->i18n('logger_unavailable')] });
 	return $logger;
+}
+
+# _failure_reason
+# Purpose:        Explain why an eval failed.  An autodie exception carries
+#                 the operating system's reason; anything else (such as a
+#                 taint-mode "Insecure dependency") is reported as it is,
+#                 not replaced by a stale $! from some earlier call.
+# Entry Criteria: $error is the eval's $@.
+# Exit Status:    Returns a one-line string.
+# Side Effects:   None.  A plain function, not a method.
+sub _failure_reason :Private {
+	my $error = shift;
+
+	my $reason = (blessed($error) && $error->can('errno') && length($error->errno())) ? $error->errno() : "$error";
+	$reason =~ s/ at \S+ line \d+\.?\n?\z//;
+	chomp $reason;
+	return $reason;
 }
 
 # _no_follow

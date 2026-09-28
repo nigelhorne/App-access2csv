@@ -24,4 +24,5 @@ t/logic-proofs.t
 t/logic.t
 t/path.t
 t/security.t
+t/taint.t
 t/unit.t

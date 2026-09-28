@@ -46,6 +46,15 @@ Readonly::Scalar my $ENC_UTF8_BOM => 'utf8-bom';
 Readonly::Scalar my $ENC_CP1252   => 'cp1252';
 Readonly::Array  my @ENCODINGS    => ($ENC_UTF8, $ENC_UTF8_BOM, $ENC_CP1252);
 
+# Taint mode: a value is untainted only after it has been validated, by
+# capturing it with this pattern (anything non-empty without a NUL byte:
+# a NUL cannot be passed to the operating system at all)
+Readonly::Scalar my $UNTAINT_RE => qr/\A([^\x00]+)\z/s;
+
+# Environment variables that can change how a program is started (see
+# perlsec); removed for the mdbtools processes
+Readonly::Array my @UNSAFE_ENV => qw(IFS CDPATH ENV BASH_ENV);
+
 # Encoding objects, looked up once: calling Encode::decode/encode by name
 # repeats the lookup for every line, which made conversion about 4 times
 # slower on large tables.  (Plain lexicals, not Readonly: Readonly's deep
@@ -192,7 +201,9 @@ An exporter can be used for more than one C<run>.  Each C<run> starts
 again with the same file names, so running twice gives the same files.
 
 The mdbtools programs are looked up only in absolute C<PATH> folders, so
-a program planted in the current folder is never run.  Table names are
+a program planted in the current folder is never run, and they are
+started with a cleaned environment (see L<App::Access2CSV/SECURITY>).
+The module works under taint mode (C<perl -T>).  Table names are
 printed and logged with control characters escaped, so a hostile name
 cannot send escape sequences to your terminal.
 
@@ -425,6 +436,10 @@ sub new {
 	# Copy the table list so later changes by the caller cannot affect us
 	$params->{tables} = [ @{ $params->{tables} } ] if $params->{tables};
 
+	# The output folder is the invoking user's own choice; it is only used
+	# as a folder name, so it is untainted here (see _untaint)
+	$params->{output_dir} = _untaint($params->{output_dir}) if defined $params->{output_dir};
+
 	my $self = bless { %DEFAULTS, %{$params}, used_names => {}, next_suffix => {}, programs => {} }, $class;
 	return set_return($self, { type => 'object' });
 }
@@ -646,6 +661,11 @@ sub run {
 		->_verify_dependencies()
 		->_reset_names();
 
+	# Premise: the database is now known to be a readable regular file, and
+	# it is only ever passed to mdbtools as one list argument after "--".
+	# Conclusion: it is safe to untaint.
+	$database = _untaint($database);
+
 	my $tables = $self->_select_tables($self->_get_tables($database));
 
 	# Guard clause: a dry run must not touch the file system, so it leaves
@@ -722,6 +742,9 @@ sub _find_program :Private {
 	# an empty one) would run whatever file of that name is in the current
 	# folder - a classic way to plant a program.
 	my ($path) = grep { defined && File::Spec->file_name_is_absolute($_) } which($program);
+
+	# An absolute path to an existing program: safe to untaint
+	$path = _untaint($path) if defined $path;
 	if($path && $self->{verbose}) {
 		$self->_log(debug => 'program_found', { params => [$program, $path] });
 	}
@@ -758,7 +781,10 @@ sub _get_tables :Protected {
 
 	# \r? copes with mdbtools builds that emit CRLF line endings; a program
 	# that printed nothing may leave $stdout undefined
-	my @tables = sort grep { length($_) && !$self->_is_system_table($_) } split /\r?\n/, $stdout // '';
+	# Table names are untainted: they are only used as one list argument
+	# after "--", and in file names only after _csv_filename has made them
+	# safe
+	my @tables = sort map { _untaint($_) } grep { length($_) && !$self->_is_system_table($_) } split /\r?\n/, $stdout // '';
 	return \@tables;
 }
 
@@ -998,6 +1024,13 @@ sub _run_program :Private {
 	# which changes the handle $. refers to; keep the caller's values
 	local ($?, $.);
 
+	# Start the program in a clean environment (as perlsec asks, and as
+	# taint mode requires): PATH keeps only absolute folders, and variables
+	# that can change how a program is started are removed
+	local $ENV{PATH} = join(':', map { _untaint($_) } grep { length && File::Spec->file_name_is_absolute($_) } split /:/, $ENV{PATH} // '');
+	local @ENV{@UNSAFE_ENV};
+	delete @ENV{@UNSAFE_ENV};
+
 	# A list (not a string) is passed, so no shell ever sees the file or
 	# table name and quoting cannot be abused
 	my $stderr = '';
@@ -1144,6 +1177,20 @@ sub _log :Private {
 		$self->_carp_i18n('log_failed', { params => [$error] });
 	}
 	return $self;
+}
+
+# _untaint
+# Purpose:        Mark a value that has already been validated as safe for
+#                 taint mode.
+# Entry Criteria: $value has been checked by the caller (see each call).
+# Exit Status:    Returns the untainted value; returns $value unchanged if
+#                 it is empty or contains a NUL (it will then fail safely
+#                 at the operating system, still tainted).
+# Side Effects:   None.  A plain function, not a method.
+sub _untaint :Private {
+	my $value = shift;
+
+	return ($value // '') =~ $UNTAINT_RE ? $1 : $value;
 }
 
 # _os_error
