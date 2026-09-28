@@ -471,8 +471,10 @@ sub _parse_options :Private {
 	# Getopt::Long has already warned about any unknown option.
 	return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS) unless $parsed;
 	return $class->_usage($EXIT_OK, $help) if $help;
-	# An empty or undefined name is as good as no name at all
-	if(@{$argv} != 1 || !defined($argv->[0]) || !length($argv->[0])) {
+	# An empty or undefined name is as good as no name at all.  length()
+	# of an empty string is 0, so one length test covers "", and "// ''"
+	# turns undef into "" first.
+	if(@{$argv} != 1 || !length($argv->[0] // '')) {
 		return $class->_usage($EXIT_USAGE, $POD_SYNOPSIS, $class->i18n('missing_database'));
 	}
 	return;
@@ -508,7 +510,7 @@ sub _usage :Private {
 sub _make_logger :Private {
 	my ($class, $opt) = @_;
 
-	return unless defined($opt->{log}) && length($opt->{log});
+	return unless length($opt->{log} // '');
 
 	# Log::Abstraction silently ignores an unwritable file, which would lose
 	# the log without telling anyone, so prove that we can append first.
@@ -543,7 +545,7 @@ sub _report_fatal :Private {
 
 	# Carp appends " at FILE line N."; that is noise for a command-line
 	# user, but useful when debugging, so keep it with --verbose
-	my $text = defined($error) && length("$error") ? "$error" : 'Unknown error';
+	my $text = length($error // '') ? "$error" : 'Unknown error';
 	$text =~ s/ at \S+ line \d+\.?\n?\z// unless $verbose;
 	chomp $text;
 

@@ -49,7 +49,9 @@ with `MSys`, `USys` or `~`.  They are skipped.
 Each file has the name of its table plus `.csv`, for example
 `Orders.csv`.  Some characters are not allowed in file names on some
 computers (`< > : " / \ | ? *` and control characters).  They are
-changed to `_`.  Spaces and dots at the end, and spaces at the start,
+changed to `_`, and so are invisible text-direction controls (such as
+U+202E, "right-to-left override"), which could make a file name look
+like something else.  Spaces and dots at the end, and spaces at the start,
 are removed.  A name such as `CON` or `NUL` (reserved on Windows) gets a
 `_` in front.  An empty name becomes `unnamed`.
 
@@ -237,6 +239,8 @@ to standard error).
 - It prints a fatal error, if there is one, to standard error as one
 line that starts with `access2csv:`.
 - It creates or adds to the log file, unless logging is off.
+- It leaves your `$@`, `$!`, `$_` and any pending `alarm` as
+they were.
 
 #### Usage
 
@@ -278,6 +282,16 @@ line that starts with `access2csv:`.
     }
 ```
 
+Valid and invalid values (tested in `t/domain.t`):
+
+```
+    database names  exactly 1; 0 or 2 or more give exit status 2
+    --encoding      utf8, utf8-bom or cp1252; anything else gives exit 3
+    --table         0 times (all tables), once, or many times; names
+                    may be non-ASCII
+    --log           a file name; '' means no log, like --no-log
+```
+
 ##### Output
 
 ```perl
@@ -299,10 +313,12 @@ line that starts with `access2csv:`.
     | Option X requires an argument       | An option such as --log was   | Give a value after it        |
     |  (exit 2)                           | the last word                 |                              |
     | Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
-    |                                     | or more than one was given    |                              |
+    |                                     | it was empty, or more than    |                              |
+    |                                     | one was given                 |                              |
     | access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
     |  E (exit 3)                         | written; E is the reason from | or --no-log                  |
-    |                                     | the operating system          |                              |
+    |                                     | the operating system, or "no  |                              |
+    |                                     | logger was created"           |                              |
     | access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See MESSAGES in              |
     |                                     | exporter                      | App::Access2CSV::Exporter    |
     +-------------------------------------+-------------------------------+------------------------------+

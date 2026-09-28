@@ -81,6 +81,9 @@ Readonly::Scalar my $TABLE_COLUMN_WIDTH => 40;
 Readonly::Scalar my $ROWS_COLUMN_WIDTH  => 10;
 Readonly::Scalar my $RULE_WIDTH         => 70;
 
+# Return schema of run(), shared by its two exits
+Readonly::Hash my %RUN_STATUS_SCHEMA => (type => 'integer', min => $EXIT_OK, max => $EXIT_FAILURE);
+
 # Mode bits for new files before the umask is applied
 Readonly::Scalar my $FILE_MODE    => oct('666');
 
@@ -503,11 +506,13 @@ Valid and invalid values (tested in F<t/domain.t>):
 The table names that mdbtools reports are data, not arguments, but they
 have limits of their own:
 
-	length      a CSV file name is the table name plus ".csv", and file
-	            names are at most 255 bytes, so table names up to 251
-	            bytes work and longer ones fail (that table only).  The
-	            limit is in bytes: 125 u-umlauts (2 bytes each) fit,
-	            126 do not.  Access allows at most 64 characters.
+	length      a CSV file name is the table name plus ".csv", and the
+	            file system limits file names, so table names up to 251
+	            units work and longer ones fail (that table only).  The
+	            unit depends on the file system: Linux counts bytes (125
+	            u-umlauts, 2 bytes each, fit; 126 do not), macOS counts
+	            characters (up to 251 of any letter fit).  Access allows
+	            at most 64 characters, well within either limit.
 	characters  non-ASCII letters, emoji, joined emoji, combining marks
 	            and right-to-left text are kept byte for byte.
 	            Characters that are unsafe in file names - including
@@ -605,8 +610,10 @@ sub run {
 	# An undef database is a missing one, not a file called "".  Work on a
 	# copy: get_params hands back the caller's own hash when given one.
 	my $input = get_params('database', \@_);
-	$input = { %{$input} } if ref($input) eq 'HASH';
-	delete $input->{database} if ref($input) eq 'HASH' && !defined($input->{database});
+	if(ref($input) eq 'HASH') {
+		$input = { %{$input} };
+		delete $input->{database} unless defined $input->{database};
+	}
 	my $params = validate_strict(
 		schema => { database => { type => 'string', min => 1 } },
 		input  => $input,
@@ -620,18 +627,16 @@ sub run {
 
 	my $tables = $self->_select_tables($self->_get_tables($database));
 
-	# A dry run must not touch the file system, so it never reaches mkdir.
-	# $status is defined exactly once, on each path.
-	my $status;
+	# Guard clause: a dry run must not touch the file system, so it leaves
+	# before mkdir.  Premise: _dry_run writes nothing that can fail a table.
+	# Conclusion: a dry run always succeeds.
 	if($self->{dry_run}) {
 		$self->_dry_run($database, $tables);
-		$status = $EXIT_OK;
-	} else {
-		my $failed = $self->_make_output_dir()->_export_all($database, $tables);
-		$status = $failed ? $EXIT_FAILURE : $EXIT_OK;
+		return set_return($EXIT_OK, { %RUN_STATUS_SCHEMA });
 	}
 
-	return set_return($status, { type => 'integer', min => $EXIT_OK, max => $EXIT_FAILURE });
+	my $failed = $self->_make_output_dir()->_export_all($database, $tables);
+	return set_return($failed ? $EXIT_FAILURE : $EXIT_OK, { %RUN_STATUS_SCHEMA });
 }
 
 # _check_database
@@ -668,11 +673,13 @@ sub _verify_dependencies :Private {
 			or $self->_croak_i18n('program_missing', { params => [$program] });
 	}
 
-	# mdb-count is only needed for row counts, so its absence is not fatal
+	# mdb-count is only needed for row counts, so its absence is not fatal.
+	# _find_program returns a path or false, so one branch decides both
+	# "store it" and "switch counts off" (nothing is stored and removed).
 	if($self->{show_counts}) {
-		$programs{$MDB_COUNT} = $self->_find_program($MDB_COUNT);
-		if(!$programs{$MDB_COUNT}) {
-			delete $programs{$MDB_COUNT};
+		if(my $path = $self->_find_program($MDB_COUNT)) {
+			$programs{$MDB_COUNT} = $path;
+		} else {
 			$self->{show_counts} = 0;
 			$self->_warn('no_row_counter');
 		}
@@ -726,7 +733,7 @@ sub _get_tables :Protected {
 
 	# \r? copes with mdbtools builds that emit CRLF line endings; a program
 	# that printed nothing may leave $stdout undefined
-	my @tables = sort grep { length($_) && !$self->_is_system_table($_) } split /\r?\n/, (defined($stdout) ? $stdout : '');
+	my @tables = sort grep { length($_) && !$self->_is_system_table($_) } split /\r?\n/, $stdout // '';
 	return \@tables;
 }
 
@@ -836,8 +843,9 @@ sub _export_table :Protected {
 
 	# Check before exporting so that we do not waste time on a big table
 	# -l as well as -e: a dangling symlink is an existing entry too, and
-	# must not be silently replaced
-	if((-e $outfile || -l $outfile) && !$self->{overwrite}) {
+	# must not be silently replaced.  The overwrite flag is tested first:
+	# when it is set the answer is already known, so no file test is needed.
+	if(!$self->{overwrite} && (-e $outfile || -l $outfile)) {
 		$self->_croak_i18n('output_exists', { params => [$outfile] });
 	}
 
@@ -945,7 +953,7 @@ sub _count_rows :Private {
 
 	# mdb-count prints just the number, but be tolerant of whitespace and
 	# of no output at all
-	my ($rows) = (defined($stdout) ? $stdout : '') =~ /(\d+)/;
+	my ($rows) = ($stdout // '') =~ /(\d+)/;
 	return $rows || 0;
 }
 
@@ -999,7 +1007,7 @@ sub _run_program :Private {
 sub _csv_filename :Protected {
 	my ($self, $table) = @_;
 
-	my $name = defined($table) ? $table : '';
+	my $name = $table // '';
 
 	# Replace characters that are illegal somewhere, then strip leading
 	# and trailing whitespace; Windows also silently drops trailing dots
@@ -1106,6 +1114,42 @@ sub _os_error :Private {
 1;
 
 __END__
+
+=head1 DESIGN NOTES
+
+Some checks are done once, early, and deliberately not repeated later.
+The reasoning, in plain words:
+
+=over 4
+
+=item * B<Settings are checked once.>  Premise 1: C<new> refuses any
+setting outside its documented values.  Premise 2: settings cannot be
+changed through the API afterwards.  Conclusion: the rest of the code can
+trust them; for example, C<encoding> is always one of the three names,
+so no "unknown encoding" branch is needed.
+
+=item * B<Fail fast, in a fixed order.>  C<run> checks the database, then
+finds the programs, then lists the tables, then makes the folder.
+Premise 1: each step needs the one before it.  Premise 2: a failure in
+one step is fatal.  Conclusion: when a step fails, nothing after it
+runs - no program is looked up for a missing database, no program is run
+when one is missing, and no folder is made when the table list fails.
+
+=item * B<A dry run always succeeds.>  Premise 1: a dry run writes no
+files.  Premise 2: only writing a file can fail a table.  Conclusion: a
+dry run returns 0 without reaching the export loop.
+
+=item * B<"Could not start" is tested before "killed by a signal".>
+Premise 1: when a program cannot be started, the exit status C<$?> is -1.
+Premise 2: the signal number is C<$? & 127>, and C<-1 & 127> is 127.
+Conclusion: testing for a signal first would wrongly report signal 127.
+
+=item * B<The overwrite setting is tested before the file.>  Premise 1: a
+table is refused only if overwrite is off B<and> the name exists.
+Premise 2: when overwrite is on, the answer is already "go ahead".
+Conclusion: the file tests are skipped in that case.
+
+=back
 
 =head1 LIMITATIONS
 

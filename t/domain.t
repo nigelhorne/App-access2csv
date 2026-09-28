@@ -81,7 +81,7 @@ my $CATALOG = dclone(\%App::Access2CSV::I18N::MESSAGES);
 
 sub verbose_diag {
 	my ($label, $data) = @_;
-	diag("$label: ", explain($data)) if $ENV{TEST_VERBOSE};
+	diag("$label: ", Test::More::explain($data)) if $ENV{TEST_VERBOSE};
 	return;
 }
 
@@ -344,13 +344,30 @@ subtest 'table name length: 1 | 64 | 251 | 252 bytes' => sub {
 };
 
 subtest 'table name length in multibyte characters: 125 | 126 x "u-umlaut"' => sub {
-	# The limit is in bytes, not characters: u-umlaut is 2 bytes in UTF-8
+	# u-umlaut is 1 character but 2 bytes in UTF-8.  The file system sets
+	# the limit, and they differ: Linux counts 255 bytes, macOS (APFS)
+	# counts 255 characters.  So 126 u-umlauts (252 bytes + ".csv") is too
+	# long on Linux but fine on a Mac.  Ask the file system which rule it
+	# uses, then check the exporter follows it: whatever fits is exported
+	# intact, whatever does not fails cleanly.
 	my $u = bytes("\x{fc}");
 	my $fits = int(($CONFIG{name_max} - length($CONFIG{csv_suffix})) / length($u));
-	my ($status, $stderr, $out) = export([$u x $fits, $u x ($fits + 1)]);
-	is($status, $CONFIG{exit_failure}, 'one fits, one does not');
+	my $long = $u x ($fits + 1);
+
+	my $probe_dir = tempdir(CLEANUP => 1);
+	my $counts_bytes = !open(my $probe, '>', "$probe_dir/$long$CONFIG{csv_suffix}");
+	close $probe if $probe;
+	verbose_diag('file system limit counts', $counts_bytes ? 'bytes' : 'characters');
+
+	my ($status, $stderr, $out) = export([$u x $fits, $long]);
 	ok(-f "$out/" . ($u x $fits) . '.csv', "$fits characters (" . ($fits * length($u)) . ' bytes): exported, not corrupted');
-	like($stderr, qr/\Q$OS{enametoolong}\E/, ($fits + 1) . ' characters: too long, reported');
+	if($counts_bytes) {
+		is($status, $CONFIG{exit_failure}, 'limit in bytes: one fits, one does not');
+		like($stderr, qr/\Q$OS{enametoolong}\E/, ($fits + 1) . ' characters (' . length($long) . ' bytes): too long, reported');
+	} else {
+		is($status, $CONFIG{exit_ok}, 'limit in characters: both fit');
+		ok(-f "$out/$long$CONFIG{csv_suffix}", ($fits + 1) . ' characters: exported, not corrupted');
+	}
 };
 
 subtest 'table name characters: German, emoji, Zalgo, RTL text' => sub {

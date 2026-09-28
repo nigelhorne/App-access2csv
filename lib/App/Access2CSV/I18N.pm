@@ -185,7 +185,8 @@ C<< App::Access2CSV::Exporter->new(language => 'en') >>).
 and is not C<C> or C<POSIX>: C<LANGUAGE>, C<LC_ALL>, C<LC_MESSAGES>,
 C<LANG>.  Only the language part is used: C<de_DE.UTF-8> means C<de>.
 Upper or lower case does not matter.  C<LANGUAGE> can hold a list such as
-C<fr:de>; only the first entry is used.
+C<fr:de>; only the first entry is used.  An empty value, or an empty
+first entry (C<:de>), counts as "not set", so the next variable is tried.
 
 =item 3. If there is no catalog for that language, English is used.
 
@@ -465,15 +466,19 @@ sub i18n {
 	if(!defined($entry) || ref($entry)) {
 		# An object pinned to English, so the retry cannot pick this
 		# language again and recurse
+		# Premise 1: every English template is complete.  Premise 2: this
+		# one is not.  Conclusion: either we are not in English (so retry in
+		# English), or the English catalog is broken (a programming error).
 		my $english = bless { language => $DEFAULT_LANGUAGE }, __PACKAGE__;
-		return $english->i18n({ key => $params->{key}, args => { %{$args} } }) if $lang ne $DEFAULT_LANGUAGE;
-		confess(sprintf($MESSAGES{$DEFAULT_LANGUAGE}{unknown_message} || 'Unknown message key: %s', $params->{key}));
+		return $english->i18n({ key => $params->{key}, args => $args }) if $lang ne $DEFAULT_LANGUAGE;
+		_unknown_key($params->{key});
 	}
 
 	# A literal message with no placeholders is returned untouched, which
 	# protects any '%' characters it contains from sprintf()
-	my @values = @{ $args->{params} || [] };
-	my $text = @values ? sprintf($entry, @values) : $entry;
+	# Use the validated array reference directly rather than copying it
+	my $values = $args->{params};
+	my $text = ($values && @{$values}) ? sprintf($entry, @{$values}) : $entry;
 
 	return set_return($text, { type => 'string' });
 }
@@ -509,22 +514,17 @@ sub _carp_i18n :Protected {
 sub _language :Private {
 	my $self = shift;
 
-	# An explicit per-object choice beats anything in the environment
-	my $wanted = (ref($self) && $self->{language}) ? $self->{language} : undef;
-
+	# An explicit per-object choice beats anything in the environment.
 	# Otherwise take the first meaningful locale variable; LANGUAGE may be
-	# a colon-separated preference list, so only its first entry is used
-	foreach my $var (@LOCALE_VARIABLES) {
-		last if defined $wanted;
-		my $value = $ENV{$var};
-		next unless defined($value) && length($value);
-		($value) = split /:/, $value;
-		next if !defined($value) || $NEUTRAL_LOCALES{$value};
-		$wanted = $value;
-	}
+	# a colon-separated preference list, so only its first entry counts.
+	# Empty values and C/POSIX mean "no preference", so they are skipped.
+	my $wanted = ref($self) && $self->{language};
+	($wanted) = grep { length && !$NEUTRAL_LOCALES{$_} }
+		map { (split /:/, $ENV{$_} // '')[0] // '' } @LOCALE_VARIABLES
+		unless $wanted;
 
 	# "de_DE.UTF-8@euro" -> "de"; anything unparseable means English
-	my ($code) = (defined($wanted) ? $wanted : '') =~ /\A([A-Za-z]{2,3})(?:[_\-.@]|\z)/;
+	my ($code) = ($wanted // '') =~ /\A([A-Za-z]{2,3})(?:[_\-.@]|\z)/;
 	return (defined($code) && exists($MESSAGES{lc $code})) ? lc($code) : $DEFAULT_LANGUAGE;
 }
 
@@ -542,8 +542,20 @@ sub _lookup :Private {
 		return $catalog->{$key} if $catalog && exists($catalog->{$key});
 	}
 
-	# Build the message directly from the English catalog, since calling
-	# i18n() here could recurse forever if 'unknown_message' were missing
+	return _unknown_key($key);
+}
+
+# _unknown_key
+# Purpose:        Report a message key that the English catalog lacks.
+# Entry Criteria: $key is the key that could not be resolved.
+# Exit Status:    Never returns; always confesses (a stack trace helps,
+#                 because this can only be a programming error).
+# Side Effects:   Unwinds the stack.
+# The text is built directly from the catalog, not through i18n(), which
+# could recurse forever if 'unknown_message' itself were missing.
+sub _unknown_key :Private {
+	my $key = shift;
+
 	confess(sprintf($MESSAGES{$DEFAULT_LANGUAGE}{unknown_message} || 'Unknown message key: %s', $key));
 }
 

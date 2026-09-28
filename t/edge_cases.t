@@ -72,7 +72,7 @@ local $ENV{PATH} = join(':', install_fake_mdbtools(), $ENV{PATH});
 
 sub verbose_diag {
 	my ($label, $data) = @_;
-	diag("$label: ", explain($data)) if $ENV{TEST_VERBOSE};
+	diag("$label: ", Test::More::explain($data)) if $ENV{TEST_VERBOSE};
 	return;
 }
 
