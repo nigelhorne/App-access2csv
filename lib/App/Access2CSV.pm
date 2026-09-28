@@ -628,7 +628,17 @@ sub _report_fatal :Private {
 	# Carp appends " at FILE line N."; that is noise for a command-line
 	# user, but useful when debugging, so keep it with --verbose
 	my $text = length($error // '') ? "$error" : 'Unknown error';
-	$text =~ s/ at \S+ line \d+\.?\n?\z// unless $verbose;
+	# The file name may contain spaces ("My Documents"), so it cannot be
+	# matched as \S+.  Instead: " at ", then the shortest run of characters
+	# that does not contain another " at ", then " line N." at the very
+	# end.  The (?! at ) guard keeps this linear: each attempt stops at the
+	# next " at ", so no character is scanned by more than one attempt.
+	$text =~ s/
+		[ ] at [ ]                  # Carp's separator
+		(?: (?! [ ] at [ ] ) . )*?  # the file name: anything but another " at "
+		[ ] line [ ] \d+ \.?        # " line 42."
+		\n? \z                      # at the very end
+	//x unless $verbose;
 	chomp $text;
 
 	# The reason may quote a hostile table name or file name: escape it

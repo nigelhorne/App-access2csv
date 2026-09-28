@@ -36,8 +36,23 @@ Readonly::Array my @LOCALE_VARIABLES => qw(LANGUAGE LC_ALL LC_MESSAGES LANG);
 # line, LF forges new log lines, BEL rings), DEL, and the invisible
 # text-direction controls.  C1 controls are matched as characters in
 # Perl character strings and as their UTF-8 bytes in byte strings.
-Readonly::Scalar my $UNPRINTABLE_RE => qr/[\x00-\x08\x0A-\x1F\x7F]|[\x{80}-\x{9F}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/;
-Readonly::Scalar my $UNPRINTABLE_BYTES_RE => qr/[\x00-\x08\x0A-\x1F\x7F]|\xC2[\x80-\x9F]|\xE2\x80[\x8E\x8F\xAA-\xAE]|\xE2\x81[\xA6-\xA9]/;
+#
+# One character class (faster than alternatives), made of these ranges:
+#	\x00-\x08 \x0A-\x1F   C0 controls, except tab (\x09)
+#	\x7F                  DEL
+#	\x{80}-\x{9F}         C1 controls (U+009B works like ESC [)
+#	\x{200E}\x{200F}      left-to-right and right-to-left marks
+#	\x{202A}-\x{202E}     embeddings and overrides (U+202E is RLO)
+#	\x{2066}-\x{2069}     isolates
+# (No spaces or comments inside the brackets: /x does not apply there.)
+Readonly::Scalar my $UNPRINTABLE_RE =>
+	qr/[\x00-\x08\x0A-\x1F\x7F\x{80}-\x{9F}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/;
+Readonly::Scalar my $UNPRINTABLE_BYTES_RE => qr/
+	  [\x00-\x08\x0A-\x1F\x7F]      # C0 controls except tab, and DEL
+	| \xC2 [\x80-\x9F]              # C1 controls, UTF-8 encoded
+	| \xE2 \x80 [\x8E\x8F\xAA-\xAE]  # LRM, RLM, embeddings, overrides
+	| \xE2 \x81 [\xA6-\xA9]          # isolates
+/x;
 
 # Plural category used when a language has no rule of its own
 Readonly::Scalar my $PLURAL_OTHER => 'other';

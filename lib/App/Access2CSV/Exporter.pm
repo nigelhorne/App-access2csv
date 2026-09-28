@@ -67,7 +67,11 @@ Readonly::Scalar my $UNSAFE_CHARS_RE => qr/[<>:"\/\\|?*\x00-\x1F\x7F]/;
 # else ("report<RLO>vsc.exe.csv"), so they are unsafe like other control
 # characters.  Matched both as Perl characters and as UTF-8 bytes, since
 # table names from mdbtools arrive as bytes.
-Readonly::Scalar my $BIDI_CONTROLS_RE => qr/[\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]|\xE2\x80[\x8E\x8F\xAA-\xAE]|\xE2\x81[\xA6-\xA9]/;
+Readonly::Scalar my $BIDI_CONTROLS_RE => qr/
+	  [\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]   # as characters
+	| \xE2 \x80 [\x8E\x8F\xAA-\xAE]                       # as UTF-8: marks, embeddings, overrides
+	| \xE2 \x81 [\xA6-\xA9]                              # as UTF-8: isolates
+/x;
 
 # Device names Windows reserves whatever the extension (CON.csv is illegal)
 Readonly::Scalar my $RESERVED_NAME_RE => qr/\A(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])\z/i;

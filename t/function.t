@@ -995,6 +995,12 @@ subtest 'App::_report_fatal prints one clean line' => sub {
 	$stderr = capture_stderr { $CONFIG{app}->_report_fatal("boom at lib/X.pm line 3.\n", 1) };
 	is($stderr, "access2csv: boom at lib/X.pm line 3.\n", 'verbose keeps the location');
 
+	$stderr = capture_stderr { $CONFIG{app}->_report_fatal("boom at /home/me/My Libs/X.pm line 3.\n", 0) };
+	is($stderr, "access2csv: boom\n", 'location removed even when the path contains spaces');
+
+	$stderr = capture_stderr { $CONFIG{app}->_report_fatal("Cannot read database /d/meet at noon.accdb: gone at /l/X.pm line 3.\n", 0) };
+	is($stderr, "access2csv: Cannot read database /d/meet at noon.accdb: gone\n", 'an " at " inside the message is kept');
+
 	$stderr = capture_stderr { $CONFIG{app}->_report_fatal(undef, 0) };
 	is($stderr, "access2csv: Unknown error\n", 'no error text');
 };
