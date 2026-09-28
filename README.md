@@ -1,33 +1,35 @@
-# NAME
+## Name
 
 App::Access2CSV - Export the tables of a Microsoft Access database to CSV files
 
-# VERSION
+## Version
 
 Version 0.001.0
 
-# SYNOPSIS
+## Synopsis
 
-        # Export every table to the current directory
-        access2csv shop.accdb
+```
+    # Export every table to the current directory
+    access2csv shop.accdb
 
-        # See what would be written, with row counts, without writing anything
-        access2csv --dry-run --show-counts shop.accdb
+    # See what would be written, with row counts, without writing anything
+    access2csv --dry-run --show-counts shop.accdb
 
-        # Export only two tables, into a folder called "exports"
-        access2csv --output-dir exports --table Customers --table Orders shop.mdb
+    # Export only two tables, into a folder called "exports"
+    access2csv --output-dir exports --table Customers --table Orders shop.mdb
 
-        # Make files that Excel opens correctly, replace old files, no log file
-        access2csv --encoding utf8-bom --overwrite --no-log shop.accdb
+    # Make files that Excel opens correctly, replace old files, no log file
+    access2csv --encoding utf8-bom --overwrite --no-log shop.accdb
 
-        # Read the database from standard input ("-"), e.g. from a download
-        curl -s https://example.com/shop.accdb | access2csv --output-dir exports -
+    # Read the database from standard input ("-"), e.g. from a download
+    curl -s https://example.com/shop.accdb | access2csv --output-dir exports -
 
-        # Nightly job: quiet, with a log in a fixed place, and stop on failure
-        access2csv --no-progress --log /var/log/access2csv.log \
-                --output-dir /srv/exports --overwrite shop.accdb || exit 1
+    # Nightly job: quiet, with a log in a fixed place, and stop on failure
+    access2csv --no-progress --log /var/log/access2csv.log \
+            --output-dir /srv/exports --overwrite shop.accdb || exit 1
+```
 
-# DESCRIPTION
+## Description
 
 Microsoft Access keeps its data in `.mdb` or `.accdb` files.
 `access2csv` reads one of these files and writes one CSV file
@@ -45,7 +47,7 @@ These programs must be installed and must be in your `PATH`.
 Access also keeps its own internal tables in the file.  Their names start
 with `MSys`, `USys` or `~`.  They are skipped.
 
-## How the CSV files are named
+### How the CSV Files Are Named
 
 Each file has the name of its table plus `.csv`, for example
 `Orders.csv`.  Some characters are not allowed in file names on some
@@ -60,7 +62,7 @@ If two tables would get the same file name, the second one gets `_2`,
 the third `_3`, and so on.  Upper and lower case count as the same here,
 because Windows and macOS treat `Orders.csv` and `ORDERS.csv` as one file.
 
-## Reading the database from standard input
+### Reading the Database From Standard Input
 
 If the database name is `-`, the database is read from standard input
 instead of a file, so it can be piped in.  mdbtools can only read a real
@@ -73,7 +75,7 @@ interrupted.
 read but the keyboard), and empty input is an error.  To use a file that
 is really called `-`, write `./-`.
 
-## How files are written
+### How Files Are Written
 
 Each file is first written to a hidden temporary file (its name starts
 with `.access2csv-`) in the output directory.  Only when it is complete
@@ -81,32 +83,36 @@ is it renamed to its real name.  So if something goes wrong, you never
 get a half-written CSV file, and an old file is only replaced by a
 complete new one.
 
-# REQUIREMENTS
+## Requirements
 
 The mdbtools programs `mdb-tables` and `mdb-export` must be installed
 and in your `PATH`; `mdb-count` is needed only for **--show-counts**.
 They are not Perl modules, so the CPAN installer cannot install them for
 you.  Install them with your system's package manager, for example:
 
-        sudo apt install mdbtools       # Debian, Ubuntu
-        sudo dnf install mdbtools       # Fedora
-        brew install mdbtools           # macOS (Homebrew)
-        pacman -S mingw-w64-x86_64-mdbtools   # Windows (MSYS2)
+```
+    sudo apt install mdbtools       # Debian, Ubuntu
+    sudo dnf install mdbtools       # Fedora
+    brew install mdbtools           # macOS (Homebrew)
+    pacman -S mingw-w64-x86_64-mdbtools   # Windows (MSYS2)
+```
 
 Without them the program stops with "Required program not found in
 PATH".  Project home: [https://github.com/mdbtools/mdbtools](https://github.com/mdbtools/mdbtools).
 
-# USING FROM PERL
+## Using From Perl
 
 The program is a very thin wrapper.  You can call the same code from Perl:
 
-        use App::Access2CSV;
+```perl
+    use App::Access2CSV;
 
-        my $status = App::Access2CSV->run('--no-log', '--output-dir', 'out', 'shop.accdb');
+    my $status = App::Access2CSV->run('--no-log', '--output-dir', 'out', 'shop.accdb');
+```
 
 For more control, use [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AExporter) directly.
 
-# OPTIONS
+## Options
 
 - **--output-dir** _DIR_
 
@@ -172,22 +178,24 @@ For more control, use [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3
 
     Print the version ("access2csv version 0.001.0"), then stop.
 
-# EXIT STATUS
+## Exit Status
 
 The program ends with one of these numbers.  Scripts can test it.
 
-        0  Every selected table was exported.  Also used for --dry-run,
-           --help, --man and --version.
-        1  At least one table was not exported.  The other tables were.
-        2  The command line was wrong, for example an unknown option, an
-           invalid value (--encoding latin1), no database name, or "-" while
-           standard input is a terminal.  Nothing has been done.
-        3  A fatal error happened before any table was exported, for example
-           the database does not exist or mdbtools is not installed.
+```
+    0  Every selected table was exported.  Also used for --dry-run,
+       --help, --man and --version.
+    1  At least one table was not exported.  The other tables were.
+    2  The command line was wrong, for example an unknown option, an
+       invalid value (--encoding latin1), no database name, or "-" while
+       standard input is a terminal.  Nothing has been done.
+    3  A fatal error happened before any table was exported, for example
+       the database does not exist or mdbtools is not installed.
+```
 
-# ENCODING
+## Encoding
 
-## The data in the CSV files
+### The Data in the CSV Files
 
 mdbtools gives the table data as UTF-8, the encoding that can hold every
 character, including accented letters, Chinese and Japanese text, and
@@ -207,7 +215,7 @@ Cyrillic, Chinese, Japanese or emoji.  If a table contains a character
 that Windows-1252 cannot hold, that table is **not** exported, and the
 error message gives the line number.  Nothing is silently replaced.
 
-## Names on the command line
+### Names on the Command Line
 
 Database paths, folder names, log file names and table names are used
 exactly as the operating system gives them to the program (as bytes).
@@ -215,11 +223,11 @@ On Linux and macOS, where the terminal uses UTF-8, names with accented
 letters, non-Latin scripts and emoji work.  On Windows, the command line
 uses the system code page, so names outside that code page may not work.
 
-## Messages
+### Messages
 
 All messages that the program prints and logs are in plain ASCII English.
 
-# ENVIRONMENT
+## Environment
 
 - `PATH`
 
@@ -242,7 +250,7 @@ All messages that the program prints and logs are in plain ASCII English.
     Not read by this program, but by mdbtools: it sets the character set
     mdbtools converts to.  Leave it unset, so that the output is UTF-8.
 
-# SECURITY
+## Security
 
 The program treats the database as untrusted: an Access file received
 from someone else may contain table names and data designed to cause
@@ -285,7 +293,7 @@ spreadsheet programs run such formulas when a CSV is opened.  Do not open
 CSV files exported from an untrusted database in a spreadsheet without
 checking them, or import them as text.
 
-# COMMON PITFALLS
+## Common Pitfalls
 
 - **A log file appears in the current folder.**  By default the log is
 `access2csv.log` in the folder you run the program from.  Use **--log** to
@@ -313,26 +321,26 @@ the program to end.
 copied to the temporary folder first; if that folder is small, set
 `TMPDIR` to one with room.
 
-# METHODS
+## Methods
 
-## run
+### Run
 
-### Purpose
+#### Purpose
 
 This is the whole `access2csv` program.  It reads the command-line
 options, opens the log, and runs an [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AExporter).
 
-### Arguments
+#### Arguments
 
 The command-line arguments, as a list of strings (normally `@ARGV`).
 Your array is copied first, so it is not changed.
 
-### Returns
+#### Returns
 
 A number from 0 to 3, as described in ["EXIT STATUS"](#exit-status).
 `run` never calls `exit` itself.
 
-### Side Effects
+#### Side Effects
 
 - Everything that ["run" in App::Access2CSV::Exporter](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AExporter#run) does: it creates
 the output folder, writes CSV files, and prints progress to standard error.
@@ -344,108 +352,122 @@ line that starts with `access2csv:`.
 - It leaves your `$@`, `$!`, `$_` and any pending `alarm` as
 they were.
 
-### Usage
+#### Usage
 
-        exit App::Access2CSV->run(@ARGV);
+```
+    exit App::Access2CSV->run(@ARGV);
+```
 
-### EXAMPLE
+#### Example
 
-        use App::Access2CSV;
+```perl
+    use App::Access2CSV;
 
-        # Export to ./out without a log file, then check what happened
-        my $status = App::Access2CSV->run('--output-dir', 'out', '--no-log', 'shop.accdb');
+    # Export to ./out without a log file, then check what happened
+    my $status = App::Access2CSV->run('--output-dir', 'out', '--no-log', 'shop.accdb');
 
-        if($status == 0) {
-                print "All tables were exported\n";
-        } elsif($status == 1) {
-                print "Some tables could not be exported\n";
-        } elsif($status == 2) {
-                print "The arguments were wrong\n";
-        } else {
-                print "Nothing was exported\n";
-        }
+    if($status == 0) {
+            print "All tables were exported\n";
+    } elsif($status == 1) {
+            print "Some tables could not be exported\n";
+    } elsif($status == 2) {
+            print "The arguments were wrong\n";
+    } else {
+            print "Nothing was exported\n";
+    }
+```
 
-### API SPECIFICATION
+#### Api Specification
 
-#### Input
+##### Input
 
-        {
-                argv => {
-                        type         => 'arrayref',
-                        optional     => 1,
-                        element_type => 'string',
-                        description  => 'Command-line arguments, passed as a list',
-                },
-        }
+```perl
+    {
+            argv => {
+                    type         => 'arrayref',
+                    optional     => 1,
+                    element_type => 'string',
+                    description  => 'Command-line arguments, passed as a list',
+            },
+    }
+```
 
 Valid and invalid values (tested in `t/domain.t`):
 
-        database names  exactly 1; 0 or 2 or more give exit status 2.
-                        "-" means standard input (exit 2 if it is a
-                        terminal, 3 if it is empty or unreadable)
-        --encoding      utf8, utf8-bom or cp1252; anything else gives exit 2
-        --table         0 times (all tables), once, or many times; names
-                        may be non-ASCII
-        --log           a file name; '' means no log, like --no-log
+```
+    database names  exactly 1; 0 or 2 or more give exit status 2.
+                    "-" means standard input (exit 2 if it is a
+                    terminal, 3 if it is empty or unreadable)
+    --encoding      utf8, utf8-bom or cp1252; anything else gives exit 2
+    --table         0 times (all tables), once, or many times; names
+                    may be non-ASCII
+    --log           a file name; '' means no log, like --no-log
+```
 
-#### Output
+##### Output
 
-        {
-                type => 'integer',
-                min  => 0,
-                max  => 3,
-        }
+```perl
+    {
+            type => 'integer',
+            min  => 0,
+            max  => 3,
+    }
+```
 
-### MESSAGES
+#### Messages
 
-        +-------------------------------------+-------------------------------+------------------------------+
-        | Message                             | Meaning                       | What to do                   |
-        +-------------------------------------+-------------------------------+------------------------------+
-        | Unknown option: X (exit 2)          | X is not an option of this    | See --help                   |
-        |                                     | program                       |                              |
-        | Option X requires an argument       | An option such as --log was   | Give a value after it        |
-        |  (exit 2)                           | the last word                 |                              |
-        | Invalid setting: REASON (exit 2)    | An option value is not        | Use a documented value (see  |
-        |                                     | allowed, e.g. --encoding      | OPTIONS)                     |
-        |                                     | latin1; REASON says which     |                              |
-        | Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
-        |                                     | it was empty, or more than    |                              |
-        |                                     | one was given                 |                              |
-        | Standard input is a terminal: pipe  | "-" was given, but nothing is | Pipe the database in, or     |
-        |  the database in, or give its file  | piped in                      | give its file name           |
-        |  name (exit 2)                      |                               |                              |
-        | access2csv: Standard input is empty:| "-" was given, but the pipe   | Check the command that       |
-        |  no database was piped in (exit 3)  | delivered nothing             | produces the database        |
-        | access2csv: Cannot read standard    | Reading the pipe failed; E is | See E                        |
-        |  input: E (exit 3)                  | the reason                    |                              |
-        | access2csv: Interrupted by SIGx     | Stopped (Ctrl-C, kill) while  | Run again                    |
-        |  while reading the database from    | waiting for piped input; the  |                              |
-        |  standard input (exit 3)            | partial copy was deleted      |                              |
-        | access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
-        |  E (exit 3)                         | written; E is the reason from | or --no-log                  |
-        |                                     | the operating system, "no     |                              |
-        |                                     | logger was created", or "it   |                              |
-        |                                     | is a symbolic link"           |                              |
-        | access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See MESSAGES in              |
-        |                                     | exporter                      | App::Access2CSV::Exporter    |
-        +-------------------------------------+-------------------------------+------------------------------+
+```
+    +-------------------------------------+-------------------------------+------------------------------+
+    | Message                             | Meaning                       | What to do                   |
+    +-------------------------------------+-------------------------------+------------------------------+
+    | Unknown option: X (exit 2)          | X is not an option of this    | See --help                   |
+    |                                     | program                       |                              |
+    | Option X requires an argument       | An option such as --log was   | Give a value after it        |
+    |  (exit 2)                           | the last word                 |                              |
+    | Invalid setting: REASON (exit 2)    | An option value is not        | Use a documented value (see  |
+    |                                     | allowed, e.g. --encoding      | OPTIONS)                     |
+    |                                     | latin1; REASON says which     |                              |
+    | Missing database filename (exit 2)  | No database name was given,   | Give exactly one database    |
+    |                                     | it was empty, or more than    |                              |
+    |                                     | one was given                 |                              |
+    | Standard input is a terminal: pipe  | "-" was given, but nothing is | Pipe the database in, or     |
+    |  the database in, or give its file  | piped in                      | give its file name           |
+    |  name (exit 2)                      |                               |                              |
+    | access2csv: Standard input is empty:| "-" was given, but the pipe   | Check the command that       |
+    |  no database was piped in (exit 3)  | delivered nothing             | produces the database        |
+    | access2csv: Cannot read standard    | Reading the pipe failed; E is | See E                        |
+    |  input: E (exit 3)                  | the reason                    |                              |
+    | access2csv: Interrupted by SIGx     | Stopped (Ctrl-C, kill) while  | Run again                    |
+    |  while reading the database from    | waiting for piped input; the  |                              |
+    |  standard input (exit 3)            | partial copy was deleted      |                              |
+    | access2csv: Cannot open log file F: | The log file cannot be        | Use --log with another file, |
+    |  E (exit 3)                         | written; E is the reason from | or --no-log                  |
+    |                                     | the operating system, "no     |                              |
+    |                                     | logger was created", or "it   |                              |
+    |                                     | is a symbolic link"           |                              |
+    | access2csv: MESSAGE (exit 3)        | Any fatal error from the      | See MESSAGES in              |
+    |                                     | exporter                      | App::Access2CSV::Exporter    |
+    +-------------------------------------+-------------------------------+------------------------------+
+```
 
-### PSEUDOCODE
+#### Pseudocode
 
-        options := default settings
-        read the command line into options
-        if the command line is wrong: print usage, return 2
-        if --help or --man: print the documentation, return 0
-        if there is not exactly one database name: print usage, return 2
-        try:
-                open the log, unless logging is off
-                status := new Exporter(options).run(database)
-        if that failed:
-                print "access2csv: <reason>" to standard error
-                status := 3
-        return status
+```
+    options := default settings
+    read the command line into options
+    if the command line is wrong: print usage, return 2
+    if --help or --man: print the documentation, return 0
+    if there is not exactly one database name: print usage, return 2
+    try:
+            open the log, unless logging is off
+            status := new Exporter(options).run(database)
+    if that failed:
+            print "access2csv: <reason>" to standard error
+            status := 3
+    return status
+```
 
-# LIMITATIONS
+## Limitations
 
 - The real work is done by the external mdbtools programs.  Their
 bugs, and their CSV style (quoting, date format, binary columns), are
@@ -466,7 +488,7 @@ surprise users.
 so that [Object::Configure](https://metacpan.org/pod/Object%3A%3AConfigure) could read them from a configuration file,
 but this is not connected yet.
 
-# TESTING WITH REAL DATABASES
+## Testing With Real Databases
 
 Most tests use stand-in mdbtools programs.  `t/real-mdbtools.t` checks
 the program against the real mdbtools and real Access files: every CSV
@@ -474,119 +496,127 @@ must be byte for byte what `mdb-export` prints.  No database ships with
 this distribution; point `ACCESS2CSV_TEST_DATA` at a folder of
 `.mdb`/`.accdb` files, for example the mdbtools project's test data:
 
-        git clone --depth 1 https://github.com/mdbtools/mdbtestdata
-        ACCESS2CSV_TEST_DATA=mdbtestdata/data prove -l t/real-mdbtools.t
+```
+    git clone --depth 1 https://github.com/mdbtools/mdbtestdata
+    ACCESS2CSV_TEST_DATA=mdbtestdata/data prove -l t/real-mdbtools.t
+```
 
 The continuous-integration workflow does this on Linux.
 
-# SEE ALSO
+## See Also
 
 [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AExporter), [App::Access2CSV::I18N](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AI18N), [Log::Abstraction](https://metacpan.org/pod/Log%3A%3AAbstraction),
 [https://github.com/mdbtools/mdbtools](https://github.com/mdbtools/mdbtools)
 
 - [Test Dashboard](https://nigelhorne.github.io/App-access2csv/coverage/)
 
-# FORMAL SPECIFICATION
+## Formal Specification
 
 These schemas use the Z notation.  `?` marks an input and `!` an output.
 You do not need to read this section to use the program.
 
-## run
+### Run
 
-        ┌─ Run ──────────────────────────────────────────────────────
-        │ argv? : seq STRING ; status! : 0 ‥ 3
-        │ opts : OPTION ⇸ VALUE ; rest : seq STRING
-        ├────────────────────────────────────────────────────────────
-        │ (opts, rest) = getopt(DEFAULTS, argv?)
-        │ ¬ parsed(argv?) ⇒ status! = 2
-        │ parsed(argv?) ∧ help ∈ dom opts ⇒ status! = 0
-        │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
-        │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧ head rest = "-" ∧
-        │   isTerminal(stdin) ⇒ status! = 2
-        │ ¬ valid(opts) ⇒ status! = 2 ∧ files' = files   -- checked first: no copy, no log
-        │ db = (if head rest = "-" then copy(stdin) else head rest)
-        │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧
-        │   ¬ (head rest = "-" ∧ isTerminal(stdin)) ⇒
-        │   (fatal(Exporter.Run(db)) ⇒ status! = 3) ∧
-        │   (¬ fatal(Exporter.Run(db)) ⇒ status! = Exporter.Run(db).status!)
-        │ files'(copy(stdin)) undefined          -- the copy never outlives the run
-        └────────────────────────────────────────────────────────────
+```
+    ┌─ Run ──────────────────────────────────────────────────────
+    │ argv? : seq STRING ; status! : 0 ‥ 3
+    │ opts : OPTION ⇸ VALUE ; rest : seq STRING
+    ├────────────────────────────────────────────────────────────
+    │ (opts, rest) = getopt(DEFAULTS, argv?)
+    │ ¬ parsed(argv?) ⇒ status! = 2
+    │ parsed(argv?) ∧ help ∈ dom opts ⇒ status! = 0
+    │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest ≠ 1 ⇒ status! = 2
+    │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧ head rest = "-" ∧
+    │   isTerminal(stdin) ⇒ status! = 2
+    │ ¬ valid(opts) ⇒ status! = 2 ∧ files' = files   -- checked first: no copy, no log
+    │ db = (if head rest = "-" then copy(stdin) else head rest)
+    │ parsed(argv?) ∧ help ∉ dom opts ∧ #rest = 1 ∧
+    │   ¬ (head rest = "-" ∧ isTerminal(stdin)) ⇒
+    │   (fatal(Exporter.Run(db)) ⇒ status! = 3) ∧
+    │   (¬ fatal(Exporter.Run(db)) ⇒ status! = Exporter.Run(db).status!)
+    │ files'(copy(stdin)) undefined          -- the copy never outlives the run
+    └────────────────────────────────────────────────────────────
+```
 
-## Printable output
+### Printable Output
 
 Every message shown on the terminal or written to the log first passes
 through this filter.  `CTRL` is the set of control characters: C0
 except tab, DEL, C1 and the text-direction controls.
 
-        ┌─ Printable ────────────────────────────────────────────────
-        │ text? : seq CHAR ; shown! : seq CHAR
-        ├────────────────────────────────────────────────────────────
-        │ shown! = ⁀/ ⟨ c : text? • (if c ∈ CTRL then escape(c) else ⟨c⟩) ⟩
-        │ ran shown! ∩ CTRL = ∅
-        └────────────────────────────────────────────────────────────
+```
+    ┌─ Printable ────────────────────────────────────────────────
+    │ text? : seq CHAR ; shown! : seq CHAR
+    ├────────────────────────────────────────────────────────────
+    │ shown! = ⁀/ ⟨ c : text? • (if c ∈ CTRL then escape(c) else ⟨c⟩) ⟩
+    │ ran shown! ∩ CTRL = ∅
+    └────────────────────────────────────────────────────────────
+```
 
-# STATE DIAGRAM
+## State Diagram
 
 One call of `run`, from start to exit status.  Each box is a state.
 Each arrow shows what moves the program to the next state, and what
 happens on the way.
 
-                          run(@argv)
-                              |
-                              v
-                      +---------------+
-                      |    PARSING    |  read options into the settings
-                      +---------------+
-                       |      |      |
-         bad option,   |      |      | --help / --man / --version
-         missing value,|      |      | action: print it to STDOUT
-         not exactly   |      |      v
-         one database, |      |   +--------+
-         or "-" while  |      |   |  HELP  |---> return 0
-         standard input|      |   +--------+
-         is a terminal |      |
-                       |      | options parsed, one database
-                       |      v
-                       |   +--------------------+
-                       |   | CHECKING SETTINGS  |
-                       |   +--------------------+
-                       |      |               |
-                       |<-----+ invalid value | valid
-                       |        (e.g.         |
-                       |        --encoding    |
-         action: print |        latin1)       v
-         the reason    |              +--------------------+  empty, unreadable,
-         and usage to  |              |   READING STDIN    |  or interrupted
-         STDERR        v              | (only for "-")     |  (croak) ------------+
-              +-------------+         +--------------------+                      |
-              | USAGE ERROR |           | action: copy standard input to a        |
-              +-------------+           |   private temporary file                |
-                  |                     v                                         |
-         return 2 <           +--------------------+  log cannot be opened        |
-                              |    OPENING LOG     |  (croak)                     |
-                              | (not with --no-log)|------------------------------+
-                              +--------------------+                              |
-                                | log is writable                                 |
-                                v                                                 |
-                      +--------------------+                                      |
-                      | EXPORTING          |  fatal error (croak)                 |
-                      | (Exporter->run,    |--------------------------------------+
-                      |  see its STATE     |                                      |
-                      |  DIAGRAM)          |                                      v
-                      +--------------------+                           +------------------+
-                         |              |                              |      FATAL       |
-           all tables OK,|              | some table                   +------------------+
-           or dry run    |              | failed                       action: print
-                         v              v                              "access2csv: <reason>"
-                     return 0       return 1                           to STDERR; return 3
+```
+                      run(@argv)
+                          |
+                          v
+                  +---------------+
+                  |    PARSING    |  read options into the settings
+                  +---------------+
+                   |      |      |
+     bad option,   |      |      | --help / --man / --version
+     missing value,|      |      | action: print it to STDOUT
+     not exactly   |      |      v
+     one database, |      |   +--------+
+     or "-" while  |      |   |  HELP  |---> return 0
+     standard input|      |   +--------+
+     is a terminal |      |
+                   |      | options parsed, one database
+                   |      v
+                   |   +--------------------+
+                   |   | CHECKING SETTINGS  |
+                   |   +--------------------+
+                   |      |               |
+                   |<-----+ invalid value | valid
+                   |        (e.g.         |
+                   |        --encoding    |
+     action: print |        latin1)       v
+     the reason    |              +--------------------+  empty, unreadable,
+     and usage to  |              |   READING STDIN    |  or interrupted
+     STDERR        v              | (only for "-")     |  (croak) ------------+
+          +-------------+         +--------------------+                      |
+          | USAGE ERROR |           | action: copy standard input to a        |
+          +-------------+           |   private temporary file                |
+              |                     v                                         |
+     return 2 <           +--------------------+  log cannot be opened        |
+                          |    OPENING LOG     |  (croak)                     |
+                          | (not with --no-log)|------------------------------+
+                          +--------------------+                              |
+                            | log is writable                                 |
+                            v                                                 |
+                  +--------------------+                                      |
+                  | EXPORTING          |  fatal error (croak)                 |
+                  | (Exporter->run,    |--------------------------------------+
+                  |  see its STATE     |                                      |
+                  |  DIAGRAM)          |                                      v
+                  +--------------------+                           +------------------+
+                     |              |                              |      FATAL       |
+       all tables OK,|              | some table                   +------------------+
+       or dry run    |              | failed                       action: print
+                     v              v                              "access2csv: <reason>"
+                 return 0       return 1                           to STDERR; return 3
+```
 
 Whichever way the run ends, a copy made of standard input is deleted.
 
-# AUTHOR
+## Author
 
 Nigel Horne, `<njh at nigelhorne.com>`
 
-# LICENSE AND COPYRIGHT
+## License and Copyright
 
 Copyright 2026 Nigel Horne.
 

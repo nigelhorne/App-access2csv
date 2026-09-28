@@ -1,6 +1,6 @@
 Revision history for App-Access2CSV
 
-0.001.0 2026-09-28
+0.001.0	Mon Sep 28 02:13:38 PM EDT 2026
         First release.
         - access2csv: export every user table of an Access (.mdb/.accdb)
           database to one CSV file each, using mdbtools

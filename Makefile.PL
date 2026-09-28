@@ -28,8 +28,8 @@ if($^O eq 'darwin') {
 	} qw(mdb-tables mdb-export);
 	if(@missing) {
 		print "NOTE: access2csv needs the mdbtools programs, which were not found in PATH\n",
-			"      (missing: @missing).  Install mdbtools with your package manager,\n",
-			"      e.g. 'sudo apt install mdbtools' or 'brew install mdbtools'.\n";
+			"\t(missing: @missing).  Install mdbtools with your package manager,\n",
+			"\te.g. 'sudo apt install mdbtools' or 'brew install mdbtools'.\n";
 	}
 }
 
@@ -38,15 +38,10 @@ WriteMakefile(
 	VERSION_FROM => 'lib/App/Access2CSV.pm',
 	ABSTRACT_FROM => 'lib/App/Access2CSV.pm',
 	AUTHOR       => 'Nigel Horne <njh@nigelhorne.com>',
-
 	# 5.14: the // operator, local $@ that survives croak, s///r and
 	# "package NAME { }" (the last two in the tests)
 	MIN_PERL_VERSION => '5.014',
-
-	EXE_FILES => [
-		'bin/access2csv',
-	],
-
+	EXE_FILES => [ 'bin/access2csv', ],
 	PREREQ_PM => {
 		'autodie'      => 0,
 		'Carp'         => 0,
@@ -70,9 +65,7 @@ WriteMakefile(
 		'Scalar::Util' => 0,
 		'Sub::Private' => 0.05,	# first version with enforce mode
 		'Sub::Protected' => 0,
-	},
-
-	TEST_REQUIRES => {
+	}, TEST_REQUIRES => {
 		'Capture::Tiny' => 0,
 		'Cwd'          => 0,
 		'Errno'        => 0,
@@ -88,9 +81,7 @@ WriteMakefile(
 		'Test::Returns' => 0,
 		'Test::Without::Module' => 0,
 	},
-
 	LICENSE => 'gpl_2',
-
 	META_MERGE => {
 		'meta-spec' => { version => 2 },
 		resources => {
@@ -105,8 +96,7 @@ WriteMakefile(
 				# url => 'https://github.com/nigelhorne/App-access2csv/issues',
 				mailto => 'bug-App-access2csv@rt.cpan.org'
 			},
-		},
-		prereqs => {
+		}, prereqs => {
 			test => {
 				# Only for the "standard input is a terminal" tests,
 				# which are skipped without it
