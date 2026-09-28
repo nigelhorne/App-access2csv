@@ -377,554 +377,569 @@ Approximate LCSAJ segments: 33<br>
 </span><span class="">   36: # line, LF forges new log lines, BEL rings), DEL, and the invisible
 </span><span class="">   37: # text-direction controls.  C1 controls are matched as characters in
 </span><span class="">   38: # Perl character strings and as their UTF-8 bytes in byte strings.
-</span><span class="">   39: Readonly::Scalar my $UNPRINTABLE_RE =&gt; qr/[\x00-\x08\x0A-\x1F\x7F]|[\x{80}-\x{9F}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/;
-</span><span class="">   40: Readonly::Scalar my $UNPRINTABLE_BYTES_RE =&gt; qr/[\x00-\x08\x0A-\x1F\x7F]|\xC2[\x80-\x9F]|\xE2\x80[\x8E\x8F\xAA-\xAE]|\xE2\x81[\xA6-\xA9]/;
-</span><span class="">   41: 
-</span><span class="">   42: # Plural category used when a language has no rule of its own
-</span><span class="">   43: Readonly::Scalar my $PLURAL_OTHER =&gt; &#39;other&#39;;
-</span><span class="">   44: 
-</span><span class="">   45: # CLDR-style plural rules.  Each returns the category name for a count.
-</span><span class="">   46: # Only languages whose rule differs from English need an entry here.
-</span><span class="">   47: Readonly::Hash my %PLURAL_RULES =&gt; (
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">   48: 	en =&gt; sub { $_[0] == 1 ? &#39;one&#39; : &#39;other&#39; },
-</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">   49: 	de =&gt; sub { $_[0] == 1 ? &#39;one&#39; : &#39;other&#39; },
-</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">   50: 	fr =&gt; sub { ($_[0] == 0 || $_[0] == 1) ? &#39;one&#39; : &#39;other&#39; },
-</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="">   51: 	ja =&gt; sub { &#39;other&#39; },
-</span><span class="">   52: 	ko =&gt; sub { &#39;other&#39; },
-</span><span class="">   53: 	zh =&gt; sub { &#39;other&#39; },
-</span><span class="">   54: );
-</span><span class="">   55: 
-</span><span class="">   56: # Message catalog: language =&gt; key =&gt; template.
-</span><span class="">   57: # A template is either a sprintf() format, or a hashref whose keys are
-</span><span class="">   58: # contexts (for example &#39;male&#39;/&#39;female&#39;) and/or plural categories
-</span><span class="">   59: # (&#39;zero&#39;, &#39;one&#39;, &#39;two&#39;, &#39;few&#39;, &#39;many&#39;, &#39;other&#39;).
-</span><span class="">   60: # It is a package variable, not Readonly, so that applications and
-</span><span class="">   61: # Object::Configure style configuration can add languages or override text.
-</span><span class="">   62: our %MESSAGES = (
-</span><span class="">   63: 	en =&gt; {
-</span><span class="">   64: 		column_output      =&gt; &#39;OUTPUT FILE&#39;,
-</span><span class="">   65: 		column_rows        =&gt; &#39;ROWS&#39;,
-</span><span class="">   66: 		column_table       =&gt; &#39;TABLE&#39;,
-</span><span class="">   67: 		database_not_file  =&gt; &#39;Database %s is not a regular file&#39;,
-</span><span class="">   68: 		database_not_found =&gt; &#39;Cannot read database %s: %s&#39;,
-</span><span class="">   69: 		database_unreadable =&gt; &#39;Database %s is not readable&#39;,
-</span><span class="">   70: 		dry_run_title      =&gt; &#39;DRY RUN&#39;,
-</span><span class="">   71: 		export_failed      =&gt; &#39;FAILED: %s: %s&#39;,
-</span><span class="">   72: 		exported           =&gt; &#39;Exported %s =&gt; %s&#39;,
-</span><span class="">   73: 		exported_rows      =&gt; {
-</span><span class="">   74: 			one   =&gt; &#39;Exported %s =&gt; %s (%d row)&#39;,
-</span><span class="">   75: 			other =&gt; &#39;Exported %s =&gt; %s (%d rows)&#39;,
-</span><span class="">   76: 		},
-</span><span class="">   77: 		fatal              =&gt; &#39;access2csv: %s&#39;,
-</span><span class="">   78: 		invalid_utf8       =&gt; &#39;Table %s, line %d: output of mdb-export is not valid UTF-8&#39;,
-</span><span class="">   79: 		log_failed         =&gt; &#39;Cannot write to the log: %s&#39;,
-</span><span class="">   80: 		log_is_symlink     =&gt; &#39;it is a symbolic link&#39;,
-</span><span class="">   81: 		log_open_failed    =&gt; &#39;Cannot open log file %s: %s&#39;,
-</span><span class="">   82: 		logger_unavailable =&gt; &#39;no logger was created&#39;,
-</span><span class="">   83: 		missing_database   =&gt; &#39;Missing database filename&#39;,
-</span><span class="">   84: 		mkdir_failed       =&gt; &#39;Cannot create output directory %s: %s&#39;,
-</span><span class="">   85: 		no_row_counter     =&gt; &#39;mdb-count not found in PATH; row counts are unavailable&#39;,
-</span><span class="">   86: 		output_exists      =&gt; &#39;Output file already exists: %s (use --overwrite to replace it)&#39;,
-</span><span class="">   87: 		program_failed     =&gt; &#39;%s failed with exit status %d: %s&#39;,
-</span><span class="">   88: 		program_found      =&gt; &#39;Found %s at %s&#39;,
-</span><span class="">   89: 		program_missing    =&gt; &#39;Required program not found in PATH: %s&#39;,
-</span><span class="">   90: 		program_not_run    =&gt; &#39;%s could not be run: %s&#39;,
-</span><span class="">   91: 		program_signalled  =&gt; &#39;%s was killed by signal %d&#39;,
-</span><span class="">   92: 		progress           =&gt; &#39;[%d/%d] %s&#39;,
-</span><span class="">   93: 		summary            =&gt; {
-</span><span class="">   94: 			one   =&gt; &#39;Processed %d table, %d failed&#39;,
-</span><span class="">   95: 			other =&gt; &#39;Processed %d tables, %d failed&#39;,
-</span><span class="">   96: 		},
-</span><span class="">   97: 		unknown_message    =&gt; &#39;Unknown message key: %s&#39;,
-</span><span class="">   98: 		unknown_tables     =&gt; {
-</span><span class="">   99: 			one   =&gt; &#39;Table not found in database: %s&#39;,
-</span><span class="">  100: 			other =&gt; &#39;Tables not found in database: %s&#39;,
-</span><span class="">  101: 		},
-</span><span class="">  102: 		unmappable         =&gt; &#39;Table %s, line %d: cannot be represented in %s&#39;,
-</span><span class="">  103: 		write_failed       =&gt; &#39;Cannot write %s: %s&#39;,
-</span><span class="">  104: 	},
-</span><span class="">  105: );
-</span><span class="">  106: 
-</span><span class="">  107: =encoding utf8
-</span><span class="">  108: 
-</span><span class="">  109: =head1 NAME
-</span><span class="">  110: 
-</span><span class="">  111: App::Access2CSV::I18N - Message catalog and translated error messages for App::Access2CSV
-</span><span class="">  112: 
-</span><span class="">  113: =head1 VERSION
-</span><span class="">  114: 
-</span><span class="">  115: Version 0.001
-</span><span class="">  116: 
-</span><span class="">  117: =head1 SYNOPSIS
-</span><span class="">  118: 
-</span><span class="">  119: 	use App::Access2CSV::I18N;
-</span><span class="">  120: 
-</span><span class="">  121: 	# 1. Get a message as text
-</span><span class="">  122: 	my $text = App::Access2CSV::I18N-&gt;i18n(&#39;missing_database&#39;);
-</span><span class="">  123: 	# &quot;Missing database filename&quot;
-</span><span class="">  124: 
-</span><span class="">  125: 	# 2. Fill in values (the message has %s and %d placeholders)
-</span><span class="">  126: 	print App::Access2CSV::I18N-&gt;i18n(&#39;progress&#39;, { params =&gt; [1, 3, &#39;Customers&#39;] }), &quot;\n&quot;;
-</span><span class="">  127: 	# &quot;[1/3] Customers&quot;
-</span><span class="">  128: 
-</span><span class="">  129: 	# 3. Let the count choose between singular and plural
-</span><span class="">  130: 	print App::Access2CSV::I18N-&gt;i18n(&#39;summary&#39;, { params =&gt; [$n, 0], count =&gt; $n }), &quot;\n&quot;;
-</span><span class="">  131: 	# $n == 1: &quot;Processed 1 table, 0 failed&quot;
-</span><span class="">  132: 	# $n == 4: &quot;Processed 4 tables, 0 failed&quot;
+</span><span class="">   39: #
+</span><span class="">   40: # One character class (faster than alternatives), made of these ranges:
+</span><span class="">   41: #	\x00-\x08 \x0A-\x1F   C0 controls, except tab (\x09)
+</span><span class="">   42: #	\x7F                  DEL
+</span><span class="">   43: #	\x{80}-\x{9F}         C1 controls (U+009B works like ESC [)
+</span><span class="">   44: #	\x{200E}\x{200F}      left-to-right and right-to-left marks
+</span><span class="">   45: #	\x{202A}-\x{202E}     embeddings and overrides (U+202E is RLO)
+</span><span class="">   46: #	\x{2066}-\x{2069}     isolates
+</span><span class="">   47: # (No spaces or comments inside the brackets: /x does not apply there.)
+</span><span class="">   48: Readonly::Scalar my $UNPRINTABLE_RE =&gt;
+</span><span class="">   49: 	qr/[\x00-\x08\x0A-\x1F\x7F\x{80}-\x{9F}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}]/;
+</span><span class="">   50: Readonly::Scalar my $UNPRINTABLE_BYTES_RE =&gt; qr/
+</span><span class="">   51: 	  [\x00-\x08\x0A-\x1F\x7F]      # C0 controls except tab, and DEL
+</span><span class="">   52: 	| \xC2 [\x80-\x9F]              # C1 controls, UTF-8 encoded
+</span><span class="">   53: 	| \xE2 \x80 [\x8E\x8F\xAA-\xAE]  # LRM, RLM, embeddings, overrides
+</span><span class="">   54: 	| \xE2 \x81 [\xA6-\xA9]          # isolates
+</span><span class="">   55: /x;
+</span><span class="">   56: 
+</span><span class="">   57: # Plural category used when a language has no rule of its own
+</span><span class="">   58: Readonly::Scalar my $PLURAL_OTHER =&gt; &#39;other&#39;;
+</span><span class="">   59: 
+</span><span class="">   60: # CLDR-style plural rules.  Each returns the category name for a count.
+</span><span class="">   61: # Only languages whose rule differs from English need an entry here.
+</span><span class="">   62: Readonly::Hash my %PLURAL_RULES =&gt; (
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">   63: 	en =&gt; sub { $_[0] == 1 ? &#39;one&#39; : &#39;other&#39; },
+</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">   64: 	de =&gt; sub { $_[0] == 1 ? &#39;one&#39; : &#39;other&#39; },
+</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">   65: 	fr =&gt; sub { ($_[0] == 0 || $_[0] == 1) ? &#39;one&#39; : &#39;other&#39; },
+</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="">   66: 	ja =&gt; sub { &#39;other&#39; },
+</span><span class="">   67: 	ko =&gt; sub { &#39;other&#39; },
+</span><span class="">   68: 	zh =&gt; sub { &#39;other&#39; },
+</span><span class="">   69: );
+</span><span class="">   70: 
+</span><span class="">   71: # Message catalog: language =&gt; key =&gt; template.
+</span><span class="">   72: # A template is either a sprintf() format, or a hashref whose keys are
+</span><span class="">   73: # contexts (for example &#39;male&#39;/&#39;female&#39;) and/or plural categories
+</span><span class="">   74: # (&#39;zero&#39;, &#39;one&#39;, &#39;two&#39;, &#39;few&#39;, &#39;many&#39;, &#39;other&#39;).
+</span><span class="">   75: # It is a package variable, not Readonly, so that applications and
+</span><span class="">   76: # Object::Configure style configuration can add languages or override text.
+</span><span class="">   77: our %MESSAGES = (
+</span><span class="">   78: 	en =&gt; {
+</span><span class="">   79: 		column_output      =&gt; &#39;OUTPUT FILE&#39;,
+</span><span class="">   80: 		column_rows        =&gt; &#39;ROWS&#39;,
+</span><span class="">   81: 		column_table       =&gt; &#39;TABLE&#39;,
+</span><span class="">   82: 		database_not_file  =&gt; &#39;Database %s is not a regular file&#39;,
+</span><span class="">   83: 		database_not_found =&gt; &#39;Cannot read database %s: %s&#39;,
+</span><span class="">   84: 		database_unreadable =&gt; &#39;Database %s is not readable&#39;,
+</span><span class="">   85: 		dry_run_title      =&gt; &#39;DRY RUN&#39;,
+</span><span class="">   86: 		export_failed      =&gt; &#39;FAILED: %s: %s&#39;,
+</span><span class="">   87: 		exported           =&gt; &#39;Exported %s =&gt; %s&#39;,
+</span><span class="">   88: 		exported_rows      =&gt; {
+</span><span class="">   89: 			one   =&gt; &#39;Exported %s =&gt; %s (%d row)&#39;,
+</span><span class="">   90: 			other =&gt; &#39;Exported %s =&gt; %s (%d rows)&#39;,
+</span><span class="">   91: 		},
+</span><span class="">   92: 		fatal              =&gt; &#39;access2csv: %s&#39;,
+</span><span class="">   93: 		invalid_utf8       =&gt; &#39;Table %s, line %d: output of mdb-export is not valid UTF-8&#39;,
+</span><span class="">   94: 		log_failed         =&gt; &#39;Cannot write to the log: %s&#39;,
+</span><span class="">   95: 		log_is_symlink     =&gt; &#39;it is a symbolic link&#39;,
+</span><span class="">   96: 		log_open_failed    =&gt; &#39;Cannot open log file %s: %s&#39;,
+</span><span class="">   97: 		logger_unavailable =&gt; &#39;no logger was created&#39;,
+</span><span class="">   98: 		missing_database   =&gt; &#39;Missing database filename&#39;,
+</span><span class="">   99: 		mkdir_failed       =&gt; &#39;Cannot create output directory %s: %s&#39;,
+</span><span class="">  100: 		no_row_counter     =&gt; &#39;mdb-count not found in PATH; row counts are unavailable&#39;,
+</span><span class="">  101: 		output_exists      =&gt; &#39;Output file already exists: %s (use --overwrite to replace it)&#39;,
+</span><span class="">  102: 		program_failed     =&gt; &#39;%s failed with exit status %d: %s&#39;,
+</span><span class="">  103: 		program_found      =&gt; &#39;Found %s at %s&#39;,
+</span><span class="">  104: 		program_missing    =&gt; &#39;Required program not found in PATH: %s&#39;,
+</span><span class="">  105: 		program_not_run    =&gt; &#39;%s could not be run: %s&#39;,
+</span><span class="">  106: 		program_signalled  =&gt; &#39;%s was killed by signal %d&#39;,
+</span><span class="">  107: 		progress           =&gt; &#39;[%d/%d] %s&#39;,
+</span><span class="">  108: 		summary            =&gt; {
+</span><span class="">  109: 			one   =&gt; &#39;Processed %d table, %d failed&#39;,
+</span><span class="">  110: 			other =&gt; &#39;Processed %d tables, %d failed&#39;,
+</span><span class="">  111: 		},
+</span><span class="">  112: 		unknown_message    =&gt; &#39;Unknown message key: %s&#39;,
+</span><span class="">  113: 		unknown_tables     =&gt; {
+</span><span class="">  114: 			one   =&gt; &#39;Table not found in database: %s&#39;,
+</span><span class="">  115: 			other =&gt; &#39;Tables not found in database: %s&#39;,
+</span><span class="">  116: 		},
+</span><span class="">  117: 		unmappable         =&gt; &#39;Table %s, line %d: cannot be represented in %s&#39;,
+</span><span class="">  118: 		write_failed       =&gt; &#39;Cannot write %s: %s&#39;,
+</span><span class="">  119: 	},
+</span><span class="">  120: );
+</span><span class="">  121: 
+</span><span class="">  122: =encoding utf8
+</span><span class="">  123: 
+</span><span class="">  124: =head1 NAME
+</span><span class="">  125: 
+</span><span class="">  126: App::Access2CSV::I18N - Message catalog and translated error messages for App::Access2CSV
+</span><span class="">  127: 
+</span><span class="">  128: =head1 VERSION
+</span><span class="">  129: 
+</span><span class="">  130: Version 0.001
+</span><span class="">  131: 
+</span><span class="">  132: =head1 SYNOPSIS
 </span><span class="">  133: 
-</span><span class="">  134: 	# 4. Add a translation.  Keys you do not translate stay in English.
-</span><span class="">  135: 	$App::Access2CSV::I18N::MESSAGES{de}{missing_database} =
-</span><span class="">  136: 		&#39;Name der Datenbankdatei fehlt&#39;;
-</span><span class="">  137: 	$ENV{LANG} = &#39;de_DE.UTF-8&#39;;
-</span><span class="">  138: 
-</span><span class="">  139: 	# 5. Use it as a base class, to get i18n() and the error helpers
-</span><span class="">  140: 	package My::Tool;
-</span><span class="">  141: 	use parent &#39;App::Access2CSV::I18N&#39;;
-</span><span class="">  142: 
-</span><span class="">  143: 	sub check {
-</span><span class="">  144: 		my ($self, $file) = @_;
-</span><span class="">  145: 		$self-&gt;_croak_i18n(&#39;database_not_file&#39;, { params =&gt; [$file] }) unless -f $file;
-</span><span class="">  146: 		return $self;
-</span><span class="">  147: 	}
+</span><span class="">  134: 	use App::Access2CSV::I18N;
+</span><span class="">  135: 
+</span><span class="">  136: 	# 1. Get a message as text
+</span><span class="">  137: 	my $text = App::Access2CSV::I18N-&gt;i18n(&#39;missing_database&#39;);
+</span><span class="">  138: 	# &quot;Missing database filename&quot;
+</span><span class="">  139: 
+</span><span class="">  140: 	# 2. Fill in values (the message has %s and %d placeholders)
+</span><span class="">  141: 	print App::Access2CSV::I18N-&gt;i18n(&#39;progress&#39;, { params =&gt; [1, 3, &#39;Customers&#39;] }), &quot;\n&quot;;
+</span><span class="">  142: 	# &quot;[1/3] Customers&quot;
+</span><span class="">  143: 
+</span><span class="">  144: 	# 3. Let the count choose between singular and plural
+</span><span class="">  145: 	print App::Access2CSV::I18N-&gt;i18n(&#39;summary&#39;, { params =&gt; [$n, 0], count =&gt; $n }), &quot;\n&quot;;
+</span><span class="">  146: 	# $n == 1: &quot;Processed 1 table, 0 failed&quot;
+</span><span class="">  147: 	# $n == 4: &quot;Processed 4 tables, 0 failed&quot;
 </span><span class="">  148: 
-</span><span class="">  149: =head1 DESCRIPTION
-</span><span class="">  150: 
-</span><span class="">  151: Every message that App::Access2CSV prints, logs or throws is looked up
-</span><span class="">  152: here, by a short name called a I&lt;key&gt; (for example C&lt;output_exists&gt;).
-</span><span class="">  153: This keeps all the text in one place, so the program can be translated.
-</span><span class="">  154: 
-</span><span class="">  155: The text for each key is a I&lt;template&gt;.  A template is usually a
-</span><span class="">  156: C&lt;sprintf&gt; format: C&lt;%s&gt; is replaced by a text value and C&lt;%d&gt; by a whole
-</span><span class="">  157: number, in order.  A template can also have different forms:
-</span><span class="">  158: 
-</span><span class="">  159: =over 4
-</span><span class="">  160: 
-</span><span class="">  161: =item * B&lt;Plural forms&gt;, chosen by a count: C&lt;one&gt; for one item,
-</span><span class="">  162: C&lt;other&gt; for any other number.  Some languages use more forms
-</span><span class="">  163: (C&lt;zero&gt;, C&lt;two&gt;, C&lt;few&gt;, C&lt;many&gt;).
-</span><span class="">  164: 
-</span><span class="">  165: =item * B&lt;Context forms&gt;, chosen by a word you give, such as C&lt;male&gt; or
-</span><span class="">  166: C&lt;female&gt;.  A context form can itself contain plural forms.
-</span><span class="">  167: 
-</span><span class="">  168: =back
+</span><span class="">  149: 	# 4. Add a translation.  Keys you do not translate stay in English.
+</span><span class="">  150: 	$App::Access2CSV::I18N::MESSAGES{de}{missing_database} =
+</span><span class="">  151: 		&#39;Name der Datenbankdatei fehlt&#39;;
+</span><span class="">  152: 	$ENV{LANG} = &#39;de_DE.UTF-8&#39;;
+</span><span class="">  153: 
+</span><span class="">  154: 	# 5. Use it as a base class, to get i18n() and the error helpers
+</span><span class="">  155: 	package My::Tool;
+</span><span class="">  156: 	use parent &#39;App::Access2CSV::I18N&#39;;
+</span><span class="">  157: 
+</span><span class="">  158: 	sub check {
+</span><span class="">  159: 		my ($self, $file) = @_;
+</span><span class="">  160: 		$self-&gt;_croak_i18n(&#39;database_not_file&#39;, { params =&gt; [$file] }) unless -f $file;
+</span><span class="">  161: 		return $self;
+</span><span class="">  162: 	}
+</span><span class="">  163: 
+</span><span class="">  164: =head1 DESCRIPTION
+</span><span class="">  165: 
+</span><span class="">  166: Every message that App::Access2CSV prints, logs or throws is looked up
+</span><span class="">  167: here, by a short name called a I&lt;key&gt; (for example C&lt;output_exists&gt;).
+</span><span class="">  168: This keeps all the text in one place, so the program can be translated.
 </span><span class="">  169: 
-</span><span class="">  170: The templates live in the hash C&lt;%App::Access2CSV::I18N::MESSAGES&gt;:
-</span><span class="">  171: 
-</span><span class="">  172: 	%MESSAGES = (
-</span><span class="">  173: 		en =&gt; {
-</span><span class="">  174: 			missing_database =&gt; &#39;Missing database filename&#39;,
-</span><span class="">  175: 			summary =&gt; {
-</span><span class="">  176: 				one   =&gt; &#39;Processed %d table, %d failed&#39;,
-</span><span class="">  177: 				other =&gt; &#39;Processed %d tables, %d failed&#39;,
-</span><span class="">  178: 			},
-</span><span class="">  179: 			...
-</span><span class="">  180: 		},
-</span><span class="">  181: 	);
+</span><span class="">  170: The text for each key is a I&lt;template&gt;.  A template is usually a
+</span><span class="">  171: C&lt;sprintf&gt; format: C&lt;%s&gt; is replaced by a text value and C&lt;%d&gt; by a whole
+</span><span class="">  172: number, in order.  A template can also have different forms:
+</span><span class="">  173: 
+</span><span class="">  174: =over 4
+</span><span class="">  175: 
+</span><span class="">  176: =item * B&lt;Plural forms&gt;, chosen by a count: C&lt;one&gt; for one item,
+</span><span class="">  177: C&lt;other&gt; for any other number.  Some languages use more forms
+</span><span class="">  178: (C&lt;zero&gt;, C&lt;two&gt;, C&lt;few&gt;, C&lt;many&gt;).
+</span><span class="">  179: 
+</span><span class="">  180: =item * B&lt;Context forms&gt;, chosen by a word you give, such as C&lt;male&gt; or
+</span><span class="">  181: C&lt;female&gt;.  A context form can itself contain plural forms.
 </span><span class="">  182: 
-</span><span class="">  183: Only English (C&lt;en&gt;) is included.
+</span><span class="">  183: =back
 </span><span class="">  184: 
-</span><span class="">  185: =head2 Which language is used
+</span><span class="">  185: The templates live in the hash C&lt;%App::Access2CSV::I18N::MESSAGES&gt;:
 </span><span class="">  186: 
-</span><span class="">  187: =over 4
-</span><span class="">  188: 
-</span><span class="">  189: =item 1. The C&lt;language&gt; field of the object, if you call C&lt;i18n&gt; on an
-</span><span class="">  190: object that has one (for example
-</span><span class="">  191: C&lt;&lt; App::Access2CSV::Exporter-&gt;new(language =&gt; &#39;en&#39;) &gt;&gt;).
-</span><span class="">  192: 
-</span><span class="">  193: =item 2. Otherwise the first of these environment variables that is set
-</span><span class="">  194: and is not C&lt;C&gt; or C&lt;POSIX&gt;: C&lt;LANGUAGE&gt;, C&lt;LC_ALL&gt;, C&lt;LC_MESSAGES&gt;,
-</span><span class="">  195: C&lt;LANG&gt;.  Only the language part is used: C&lt;de_DE.UTF-8&gt; means C&lt;de&gt;.
-</span><span class="">  196: Upper or lower case does not matter.  C&lt;LANGUAGE&gt; can hold a list such as
-</span><span class="">  197: C&lt;fr:de&gt;; only the first entry is used.  An empty value, or an empty
-</span><span class="">  198: first entry (C&lt;:de&gt;), counts as &quot;not set&quot;, so the next variable is tried.
+</span><span class="">  187: 	%MESSAGES = (
+</span><span class="">  188: 		en =&gt; {
+</span><span class="">  189: 			missing_database =&gt; &#39;Missing database filename&#39;,
+</span><span class="">  190: 			summary =&gt; {
+</span><span class="">  191: 				one   =&gt; &#39;Processed %d table, %d failed&#39;,
+</span><span class="">  192: 				other =&gt; &#39;Processed %d tables, %d failed&#39;,
+</span><span class="">  193: 			},
+</span><span class="">  194: 			...
+</span><span class="">  195: 		},
+</span><span class="">  196: 	);
+</span><span class="">  197: 
+</span><span class="">  198: Only English (C&lt;en&gt;) is included.
 </span><span class="">  199: 
-</span><span class="">  200: =item 3. If there is no catalog for that language, English is used.
+</span><span class="">  200: =head2 Which language is used
 </span><span class="">  201: 
-</span><span class="">  202: =back
+</span><span class="">  202: =over 4
 </span><span class="">  203: 
-</span><span class="">  204: Inside a language, a key that has no translation falls back to the
-</span><span class="">  205: English text, one key at a time.
-</span><span class="">  206: 
-</span><span class="">  207: =head2 Helpers for subclasses
-</span><span class="">  208: 
-</span><span class="">  209: Subclasses get two protected methods.  They can be called only from this
-</span><span class="">  210: class and its subclasses:
-</span><span class="">  211: 
-</span><span class="">  212: =over 4
-</span><span class="">  213: 
-</span><span class="">  214: =item * C&lt;&lt; $self-&gt;_croak_i18n($key, \%args) &gt;&gt; - throws an exception
-</span><span class="">  215: (with L&lt;Carp/croak&gt;) with the translated message.  It never returns.
+</span><span class="">  204: =item 1. The C&lt;language&gt; field of the object, if you call C&lt;i18n&gt; on an
+</span><span class="">  205: object that has one (for example
+</span><span class="">  206: C&lt;&lt; App::Access2CSV::Exporter-&gt;new(language =&gt; &#39;en&#39;) &gt;&gt;).
+</span><span class="">  207: 
+</span><span class="">  208: =item 2. Otherwise the first of these environment variables that is set
+</span><span class="">  209: and is not C&lt;C&gt; or C&lt;POSIX&gt;: C&lt;LANGUAGE&gt;, C&lt;LC_ALL&gt;, C&lt;LC_MESSAGES&gt;,
+</span><span class="">  210: C&lt;LANG&gt;.  Only the language part is used: C&lt;de_DE.UTF-8&gt; means C&lt;de&gt;.
+</span><span class="">  211: Upper or lower case does not matter.  C&lt;LANGUAGE&gt; can hold a list such as
+</span><span class="">  212: C&lt;fr:de&gt;; only the first entry is used.  An empty value, or an empty
+</span><span class="">  213: first entry (C&lt;:de&gt;), counts as &quot;not set&quot;, so the next variable is tried.
+</span><span class="">  214: 
+</span><span class="">  215: =item 3. If there is no catalog for that language, English is used.
 </span><span class="">  216: 
-</span><span class="">  217: =item * C&lt;&lt; $self-&gt;_carp_i18n($key, \%args) &gt;&gt; - warns (with
-</span><span class="">  218: L&lt;Carp/carp&gt;) with the translated message, with control characters
-</span><span class="">  219: escaped.  It returns C&lt;$self&gt;.
-</span><span class="">  220: 
-</span><span class="">  221: =item * C&lt;&lt; $self-&gt;_printable($text) &gt;&gt; - returns C&lt;$text&gt; with control
-</span><span class="">  222: characters (C0 except tab, DEL, C1, and text-direction controls) shown
-</span><span class="">  223: as escapes such as C&lt;\x1B&gt;, so that text from an untrusted database is
-</span><span class="">  224: safe to print or log.
-</span><span class="">  225: 
-</span><span class="">  226: =back
-</span><span class="">  227: 
-</span><span class="">  228: =head1 ENCODING
-</span><span class="">  229: 
-</span><span class="">  230: =over 4
+</span><span class="">  217: =back
+</span><span class="">  218: 
+</span><span class="">  219: Inside a language, a key that has no translation falls back to the
+</span><span class="">  220: English text, one key at a time.
+</span><span class="">  221: 
+</span><span class="">  222: =head2 Helpers for subclasses
+</span><span class="">  223: 
+</span><span class="">  224: Subclasses get two protected methods.  They can be called only from this
+</span><span class="">  225: class and its subclasses:
+</span><span class="">  226: 
+</span><span class="">  227: =over 4
+</span><span class="">  228: 
+</span><span class="">  229: =item * C&lt;&lt; $self-&gt;_croak_i18n($key, \%args) &gt;&gt; - throws an exception
+</span><span class="">  230: (with L&lt;Carp/croak&gt;) with the translated message.  It never returns.
 </span><span class="">  231: 
-</span><span class="">  232: =item * B&lt;The English catalog&gt; is plain ASCII.
-</span><span class="">  233: 
-</span><span class="">  234: =item * B&lt;Values in params&gt; are copied into the message as they are.
-</span><span class="">  235: Byte strings (such as UTF-8 file names from the command line) stay byte
-</span><span class="">  236: strings, so non-ASCII text and emoji come out unchanged when printed.
-</span><span class="">  237: 
-</span><span class="">  238: =item * B&lt;Translations with non-ASCII text&gt; (for example German C&lt;ue&gt;
-</span><span class="">  239: written as one letter, or Japanese) must be Perl character strings: write
-</span><span class="">  240: them in a source file with C&lt;use utf8;&gt;.  Do not mix them with UTF-8
-</span><span class="">  241: I&lt;byte&gt; strings in C&lt;params&gt;, or the bytes will be encoded a second time.
-</span><span class="">  242: When you print such messages, give the output handle an encoding, for
-</span><span class="">  243: example C&lt;binmode(STDERR, &#39;:encoding(UTF-8)&#39;)&gt;, or Perl warns
-</span><span class="">  244: &quot;Wide character in print&quot;.
-</span><span class="">  245: 
-</span><span class="">  246: =back
-</span><span class="">  247: 
-</span><span class="">  248: =head1 COMMON PITFALLS
-</span><span class="">  249: 
-</span><span class="">  250: =over 4
-</span><span class="">  251: 
-</span><span class="">  252: =item * B&lt;Percent signs.&gt;  A template with no C&lt;params&gt; is returned
-</span><span class="">  253: exactly as written, so C&lt;100%&gt; is safe.  But when you give C&lt;params&gt;, the
-</span><span class="">  254: template goes through C&lt;sprintf&gt;, so a literal percent sign must be
-</span><span class="">  255: written C&lt;%%&gt;.
-</span><span class="">  256: 
-</span><span class="">  257: =item * B&lt;Number of values.&gt;  Give exactly as many C&lt;params&gt; as the
-</span><span class="">  258: template has placeholders.  Too few gives a Perl &quot;Missing argument&quot;
-</span><span class="">  259: warning; C&lt;undef&gt; in C&lt;params&gt; gives a &quot;Use of uninitialized value&quot;
-</span><span class="">  260: warning.
-</span><span class="">  261: 
-</span><span class="">  262: =item * B&lt;No count means plural.&gt;  If you do not give C&lt;count&gt;, the
-</span><span class="">  263: C&lt;other&gt; form is used, even if the number in C&lt;params&gt; is 1.
+</span><span class="">  232: =item * C&lt;&lt; $self-&gt;_carp_i18n($key, \%args) &gt;&gt; - warns (with
+</span><span class="">  233: L&lt;Carp/carp&gt;) with the translated message, with control characters
+</span><span class="">  234: escaped.  It returns C&lt;$self&gt;.
+</span><span class="">  235: 
+</span><span class="">  236: =item * C&lt;&lt; $self-&gt;_printable($text) &gt;&gt; - returns C&lt;$text&gt; with control
+</span><span class="">  237: characters (C0 except tab, DEL, C1, and text-direction controls) shown
+</span><span class="">  238: as escapes such as C&lt;\x1B&gt;, so that text from an untrusted database is
+</span><span class="">  239: safe to print or log.
+</span><span class="">  240: 
+</span><span class="">  241: =back
+</span><span class="">  242: 
+</span><span class="">  243: =head1 ENCODING
+</span><span class="">  244: 
+</span><span class="">  245: =over 4
+</span><span class="">  246: 
+</span><span class="">  247: =item * B&lt;The English catalog&gt; is plain ASCII.
+</span><span class="">  248: 
+</span><span class="">  249: =item * B&lt;Values in params&gt; are copied into the message as they are.
+</span><span class="">  250: Byte strings (such as UTF-8 file names from the command line) stay byte
+</span><span class="">  251: strings, so non-ASCII text and emoji come out unchanged when printed.
+</span><span class="">  252: 
+</span><span class="">  253: =item * B&lt;Translations with non-ASCII text&gt; (for example German C&lt;ue&gt;
+</span><span class="">  254: written as one letter, or Japanese) must be Perl character strings: write
+</span><span class="">  255: them in a source file with C&lt;use utf8;&gt;.  Do not mix them with UTF-8
+</span><span class="">  256: I&lt;byte&gt; strings in C&lt;params&gt;, or the bytes will be encoded a second time.
+</span><span class="">  257: When you print such messages, give the output handle an encoding, for
+</span><span class="">  258: example C&lt;binmode(STDERR, &#39;:encoding(UTF-8)&#39;)&gt;, or Perl warns
+</span><span class="">  259: &quot;Wide character in print&quot;.
+</span><span class="">  260: 
+</span><span class="">  261: =back
+</span><span class="">  262: 
+</span><span class="">  263: =head1 COMMON PITFALLS
 </span><span class="">  264: 
-</span><span class="">  265: =item * B&lt;Replacing a key replaces all of its forms.&gt;
-</span><span class="">  266: C&lt;%MESSAGES&gt; is not merged in depth.  If you set
-</span><span class="">  267: C&lt;&lt; $MESSAGES{en}{summary} = &#39;Done&#39; &gt;&gt;, the C&lt;one&gt; and C&lt;other&gt; forms of
-</span><span class="">  268: C&lt;summary&gt; are gone.  If a translation gives a plural hash, it should have
-</span><span class="">  269: an C&lt;other&gt; form: when no form fits, the English text for that key is
-</span><span class="">  270: used instead.
+</span><span class="">  265: =over 4
+</span><span class="">  266: 
+</span><span class="">  267: =item * B&lt;Percent signs.&gt;  A template with no C&lt;params&gt; is returned
+</span><span class="">  268: exactly as written, so C&lt;100%&gt; is safe.  But when you give C&lt;params&gt;, the
+</span><span class="">  269: template goes through C&lt;sprintf&gt;, so a literal percent sign must be
+</span><span class="">  270: written C&lt;%%&gt;.
 </span><span class="">  271: 
-</span><span class="">  272: =item * B&lt;Unknown context.&gt;  A C&lt;context&gt; that the template does not have
-</span><span class="">  273: is ignored; the plural forms (or the plain text) are used instead.
-</span><span class="">  274: 
-</span><span class="">  275: =item * B&lt;Unknown keys are fatal.&gt;  A key that is not in the English
-</span><span class="">  276: catalog is a programming error: C&lt;i18n&gt; calls C&lt;confess&gt;, which stops the
-</span><span class="">  277: program and prints a stack trace.
-</span><span class="">  278: 
-</span><span class="">  279: =item * B&lt;undef arguments.&gt;  C&lt;undef&gt; for C&lt;args&gt;, or for a field inside
-</span><span class="">  280: the hashref form, is treated as &quot;not given&quot;.  C&lt;undef&gt; as the key is
-</span><span class="">  281: reported as a missing key.
-</span><span class="">  282: 
-</span><span class="">  283: =item * B&lt;Load with use, not require.&gt;  The protection of C&lt;_croak_i18n&gt;
-</span><span class="">  284: and C&lt;_carp_i18n&gt; is set up at compile time.  After a run-time
-</span><span class="">  285: C&lt;require&gt; it is missing, and Perl prints &quot;Too late to run CHECK block&quot;.
+</span><span class="">  272: =item * B&lt;Number of values.&gt;  Give exactly as many C&lt;params&gt; as the
+</span><span class="">  273: template has placeholders.  Too few gives a Perl &quot;Missing argument&quot;
+</span><span class="">  274: warning; C&lt;undef&gt; in C&lt;params&gt; gives a &quot;Use of uninitialized value&quot;
+</span><span class="">  275: warning.
+</span><span class="">  276: 
+</span><span class="">  277: =item * B&lt;No count means plural.&gt;  If you do not give C&lt;count&gt;, the
+</span><span class="">  278: C&lt;other&gt; form is used, even if the number in C&lt;params&gt; is 1.
+</span><span class="">  279: 
+</span><span class="">  280: =item * B&lt;Replacing a key replaces all of its forms.&gt;
+</span><span class="">  281: C&lt;%MESSAGES&gt; is not merged in depth.  If you set
+</span><span class="">  282: C&lt;&lt; $MESSAGES{en}{summary} = &#39;Done&#39; &gt;&gt;, the C&lt;one&gt; and C&lt;other&gt; forms of
+</span><span class="">  283: C&lt;summary&gt; are gone.  If a translation gives a plural hash, it should have
+</span><span class="">  284: an C&lt;other&gt; form: when no form fits, the English text for that key is
+</span><span class="">  285: used instead.
 </span><span class="">  286: 
-</span><span class="">  287: =back
-</span><span class="">  288: 
-</span><span class="">  289: =head1 METHODS
-</span><span class="">  290: 
-</span><span class="">  291: =head2 i18n
-</span><span class="">  292: 
-</span><span class="">  293: =head3 Purpose
-</span><span class="">  294: 
-</span><span class="">  295: Turn a message key into text in the user&#39;s language.  Choose the right
-</span><span class="">  296: context and plural form, then fill in the values.
+</span><span class="">  287: =item * B&lt;Unknown context.&gt;  A C&lt;context&gt; that the template does not have
+</span><span class="">  288: is ignored; the plural forms (or the plain text) are used instead.
+</span><span class="">  289: 
+</span><span class="">  290: =item * B&lt;Unknown keys are fatal.&gt;  A key that is not in the English
+</span><span class="">  291: catalog is a programming error: C&lt;i18n&gt; calls C&lt;confess&gt;, which stops the
+</span><span class="">  292: program and prints a stack trace.
+</span><span class="">  293: 
+</span><span class="">  294: =item * B&lt;undef arguments.&gt;  C&lt;undef&gt; for C&lt;args&gt;, or for a field inside
+</span><span class="">  295: the hashref form, is treated as &quot;not given&quot;.  C&lt;undef&gt; as the key is
+</span><span class="">  296: reported as a missing key.
 </span><span class="">  297: 
-</span><span class="">  298: =head3 Arguments
-</span><span class="">  299: 
-</span><span class="">  300: You can call C&lt;i18n&gt; on the class or on an object.  There are two ways
-</span><span class="">  301: to give the arguments:
-</span><span class="">  302: 
-</span><span class="">  303: 	$obj-&gt;i18n($key, \%args);
-</span><span class="">  304: 	$obj-&gt;i18n({ key =&gt; $key, args =&gt; \%args });
+</span><span class="">  298: =item * B&lt;Load with use, not require.&gt;  The protection of C&lt;_croak_i18n&gt;
+</span><span class="">  299: and C&lt;_carp_i18n&gt; is set up at compile time.  After a run-time
+</span><span class="">  300: C&lt;require&gt; it is missing, and Perl prints &quot;Too late to run CHECK block&quot;.
+</span><span class="">  301: 
+</span><span class="">  302: =back
+</span><span class="">  303: 
+</span><span class="">  304: =head1 METHODS
 </span><span class="">  305: 
-</span><span class="">  306: =over 4
+</span><span class="">  306: =head2 i18n
 </span><span class="">  307: 
-</span><span class="">  308: =item C&lt;key&gt; (string, required)
+</span><span class="">  308: =head3 Purpose
 </span><span class="">  309: 
-</span><span class="">  310: The message key, for example C&lt;&#39;output_exists&#39;&gt;.
-</span><span class="">  311: 
-</span><span class="">  312: =item C&lt;args&gt; (hash reference, optional)
-</span><span class="">  313: 
-</span><span class="">  314: =over 4
-</span><span class="">  315: 
-</span><span class="">  316: =item C&lt;params&gt; - an array reference of the values for the placeholders,
-</span><span class="">  317: in order.
-</span><span class="">  318: 
-</span><span class="">  319: =item C&lt;count&gt; - a whole number, 0 or more, that chooses the plural form.
+</span><span class="">  310: Turn a message key into text in the user&#39;s language.  Choose the right
+</span><span class="">  311: context and plural form, then fill in the values.
+</span><span class="">  312: 
+</span><span class="">  313: =head3 Arguments
+</span><span class="">  314: 
+</span><span class="">  315: You can call C&lt;i18n&gt; on the class or on an object.  There are two ways
+</span><span class="">  316: to give the arguments:
+</span><span class="">  317: 
+</span><span class="">  318: 	$obj-&gt;i18n($key, \%args);
+</span><span class="">  319: 	$obj-&gt;i18n({ key =&gt; $key, args =&gt; \%args });
 </span><span class="">  320: 
-</span><span class="">  321: =item C&lt;context&gt; - a word that chooses a context form, for example
-</span><span class="">  322: C&lt;&#39;female&#39;&gt;.
-</span><span class="">  323: 
-</span><span class="">  324: =back
-</span><span class="">  325: 
-</span><span class="">  326: =back
-</span><span class="">  327: 
-</span><span class="">  328: =head3 Returns
-</span><span class="">  329: 
-</span><span class="">  330: The message as a string, without a newline at the end.
-</span><span class="">  331: 
-</span><span class="">  332: =head3 Side Effects
+</span><span class="">  321: =over 4
+</span><span class="">  322: 
+</span><span class="">  323: =item C&lt;key&gt; (string, required)
+</span><span class="">  324: 
+</span><span class="">  325: The message key, for example C&lt;&#39;output_exists&#39;&gt;.
+</span><span class="">  326: 
+</span><span class="">  327: =item C&lt;args&gt; (hash reference, optional)
+</span><span class="">  328: 
+</span><span class="">  329: =over 4
+</span><span class="">  330: 
+</span><span class="">  331: =item C&lt;params&gt; - an array reference of the values for the placeholders,
+</span><span class="">  332: in order.
 </span><span class="">  333: 
-</span><span class="">  334: None.  It only reads C&lt;%MESSAGES&gt; and C&lt;%ENV&gt;.  Your C&lt;$@&gt;, C&lt;$!&gt; and
-</span><span class="">  335: C&lt;$_&gt; are left as they were.
-</span><span class="">  336: 
-</span><span class="">  337: =head3 Usage
+</span><span class="">  334: =item C&lt;count&gt; - a whole number, 0 or more, that chooses the plural form.
+</span><span class="">  335: 
+</span><span class="">  336: =item C&lt;context&gt; - a word that chooses a context form, for example
+</span><span class="">  337: C&lt;&#39;female&#39;&gt;.
 </span><span class="">  338: 
-</span><span class="">  339: 	my $text = $self-&gt;i18n(&#39;summary&#39;, { params =&gt; [3, 0], count =&gt; 3 });
+</span><span class="">  339: =back
 </span><span class="">  340: 
-</span><span class="">  341: =head3 EXAMPLE
+</span><span class="">  341: =back
 </span><span class="">  342: 
-</span><span class="">  343: 	# &quot;Output file already exists: out/Orders.csv (use --overwrite to replace it)&quot;
-</span><span class="">  344: 	my $msg = App::Access2CSV::I18N-&gt;i18n(&#39;output_exists&#39;, { params =&gt; [&#39;out/Orders.csv&#39;] });
-</span><span class="">  345: 
-</span><span class="">  346: 	# A message with context and plural forms
-</span><span class="">  347: 	$App::Access2CSV::I18N::MESSAGES{en}{greeting} = {
-</span><span class="">  348: 		female =&gt; { one =&gt; &#39;She sent %d letter&#39;, other =&gt; &#39;She sent %d letters&#39; },
-</span><span class="">  349: 		other  =&gt; &#39;They sent %d letters&#39;,
-</span><span class="">  350: 	};
-</span><span class="">  351: 	print App::Access2CSV::I18N-&gt;i18n(&#39;greeting&#39;,
-</span><span class="">  352: 		{ params =&gt; [2], count =&gt; 2, context =&gt; &#39;female&#39; }), &quot;\n&quot;;
-</span><span class="">  353: 	# &quot;She sent 2 letters&quot;
-</span><span class="">  354: 
-</span><span class="">  355: =head3 API SPECIFICATION
-</span><span class="">  356: 
-</span><span class="">  357: =head4 Input
-</span><span class="">  358: 
-</span><span class="">  359: 	{
-</span><span class="">  360: 		key =&gt; {
-</span><span class="">  361: 			type     =&gt; &#39;string&#39;,
-</span><span class="">  362: 			min      =&gt; 1,
-</span><span class="">  363: 			optional =&gt; 0,
-</span><span class="">  364: 		},
-</span><span class="">  365: 		args =&gt; {
-</span><span class="">  366: 			type     =&gt; &#39;hashref&#39;,
-</span><span class="">  367: 			optional =&gt; 1,
-</span><span class="">  368: 			schema   =&gt; {
-</span><span class="">  369: 				params  =&gt; { type =&gt; &#39;arrayref&#39;, optional =&gt; 1 },
-</span><span class="">  370: 				count   =&gt; { type =&gt; &#39;integer&#39;, optional =&gt; 1, min =&gt; 0 },
-</span><span class="">  371: 				context =&gt; { type =&gt; &#39;string&#39;, optional =&gt; 1 },
-</span><span class="">  372: 			},
-</span><span class="">  373: 		},
-</span><span class="">  374: 	}
-</span><span class="">  375: 
-</span><span class="">  376: Valid and invalid values (tested in F&lt;t/domain.t&gt;):
-</span><span class="">  377: 
-</span><span class="">  378: 	key      valid:   a key in the English catalog
-</span><span class="">  379: 	         invalid: &quot;&quot; (1 character is the minimum), undef, a
-</span><span class="">  380: 	                  reference, an unknown key (fatal: &quot;Unknown message
-</span><span class="">  381: 	                  key&quot;), a known key with extra characters
-</span><span class="">  382: 	count    valid:   whole numbers from 0 up (0 is the minimum; 2**53
-</span><span class="">  383: 	                  works); undef means &quot;no count&quot;
-</span><span class="">  384: 	         invalid: -1 and below, fractions (1.5), words
-</span><span class="">  385: 	         edges:   English and German: 1 is singular, 0 and 2 plural.
-</span><span class="">  386: 	                  French: 0 and 1 singular.  Japanese, Korean,
-</span><span class="">  387: 	                  Chinese: always the &quot;other&quot; form
-</span><span class="">  388: 	params   any number of values, including none; each value is
-</span><span class="">  389: 	         copied into the text exactly, whether it is a Perl
-</span><span class="">  390: 	         character string or UTF-8 bytes (non-ASCII letters,
-</span><span class="">  391: 	         emoji, joined emoji, combining marks, right-to-left text)
-</span><span class="">  392: 	context  any string; one the template does not have (including &quot;&quot;)
-</span><span class="">  393: 	         is ignored; a reference is invalid
-</span><span class="">  394: 	language (from the environment) the first 2 or 3 letters, in any
-</span><span class="">  395: 	         case; 1 letter, non-ASCII letters, C and POSIX all mean
-</span><span class="">  396: 	         &quot;no language&quot;
-</span><span class="">  397: 
-</span><span class="">  398: =head4 Output
-</span><span class="">  399: 
-</span><span class="">  400: 	{
-</span><span class="">  401: 		type =&gt; &#39;string&#39;,
-</span><span class="">  402: 	}
-</span><span class="">  403: 
-</span><span class="">  404: =head3 MESSAGES
-</span><span class="">  405: 
-</span><span class="">  406: 	+-----------------------------+-------------------------------+---------------------------------+
-</span><span class="">  407: 	| Message                     | Meaning                       | What to do                      |
-</span><span class="">  408: 	+-----------------------------+-------------------------------+---------------------------------+
-</span><span class="">  409: 	| Unknown message key: KEY    | KEY is not in the English     | Programming error: add KEY to   |
-</span><span class="">  410: 	|  (fatal, with stack trace)  | catalog                       | $MESSAGES{en}                   |
-</span><span class="">  411: 	| Required parameter &#39;key&#39; is | No key was given              | Give a key                      |
-</span><span class="">  412: 	|  missing (fatal)            |                               |                                 |
-</span><span class="">  413: 	| Unknown parameter &#39;X&#39;       | args has a field that is not  | Use only params, count and      |
-</span><span class="">  414: 	|  (fatal)                    | params, count or context      | context                         |
-</span><span class="">  415: 	| Parameter &#39;count&#39; (X) must  | count is negative or not a    | Give a whole number, 0 or more  |
-</span><span class="">  416: 	|  be ... (fatal)             | whole number                  |                                 |
-</span><span class="">  417: 	| Parameter &#39;params&#39; must be  | params is not an array        | Give an array reference         |
-</span><span class="">  418: 	|  an arrayref (fatal)        | reference                     |                                 |
-</span><span class="">  419: 	+-----------------------------+-------------------------------+---------------------------------+
+</span><span class="">  343: =head3 Returns
+</span><span class="">  344: 
+</span><span class="">  345: The message as a string, without a newline at the end.
+</span><span class="">  346: 
+</span><span class="">  347: =head3 Side Effects
+</span><span class="">  348: 
+</span><span class="">  349: None.  It only reads C&lt;%MESSAGES&gt; and C&lt;%ENV&gt;.  Your C&lt;$@&gt;, C&lt;$!&gt; and
+</span><span class="">  350: C&lt;$_&gt; are left as they were.
+</span><span class="">  351: 
+</span><span class="">  352: =head3 Usage
+</span><span class="">  353: 
+</span><span class="">  354: 	my $text = $self-&gt;i18n(&#39;summary&#39;, { params =&gt; [3, 0], count =&gt; 3 });
+</span><span class="">  355: 
+</span><span class="">  356: =head3 EXAMPLE
+</span><span class="">  357: 
+</span><span class="">  358: 	# &quot;Output file already exists: out/Orders.csv (use --overwrite to replace it)&quot;
+</span><span class="">  359: 	my $msg = App::Access2CSV::I18N-&gt;i18n(&#39;output_exists&#39;, { params =&gt; [&#39;out/Orders.csv&#39;] });
+</span><span class="">  360: 
+</span><span class="">  361: 	# A message with context and plural forms
+</span><span class="">  362: 	$App::Access2CSV::I18N::MESSAGES{en}{greeting} = {
+</span><span class="">  363: 		female =&gt; { one =&gt; &#39;She sent %d letter&#39;, other =&gt; &#39;She sent %d letters&#39; },
+</span><span class="">  364: 		other  =&gt; &#39;They sent %d letters&#39;,
+</span><span class="">  365: 	};
+</span><span class="">  366: 	print App::Access2CSV::I18N-&gt;i18n(&#39;greeting&#39;,
+</span><span class="">  367: 		{ params =&gt; [2], count =&gt; 2, context =&gt; &#39;female&#39; }), &quot;\n&quot;;
+</span><span class="">  368: 	# &quot;She sent 2 letters&quot;
+</span><span class="">  369: 
+</span><span class="">  370: =head3 API SPECIFICATION
+</span><span class="">  371: 
+</span><span class="">  372: =head4 Input
+</span><span class="">  373: 
+</span><span class="">  374: 	{
+</span><span class="">  375: 		key =&gt; {
+</span><span class="">  376: 			type     =&gt; &#39;string&#39;,
+</span><span class="">  377: 			min      =&gt; 1,
+</span><span class="">  378: 			optional =&gt; 0,
+</span><span class="">  379: 		},
+</span><span class="">  380: 		args =&gt; {
+</span><span class="">  381: 			type     =&gt; &#39;hashref&#39;,
+</span><span class="">  382: 			optional =&gt; 1,
+</span><span class="">  383: 			schema   =&gt; {
+</span><span class="">  384: 				params  =&gt; { type =&gt; &#39;arrayref&#39;, optional =&gt; 1 },
+</span><span class="">  385: 				count   =&gt; { type =&gt; &#39;integer&#39;, optional =&gt; 1, min =&gt; 0 },
+</span><span class="">  386: 				context =&gt; { type =&gt; &#39;string&#39;, optional =&gt; 1 },
+</span><span class="">  387: 			},
+</span><span class="">  388: 		},
+</span><span class="">  389: 	}
+</span><span class="">  390: 
+</span><span class="">  391: Valid and invalid values (tested in F&lt;t/domain.t&gt;):
+</span><span class="">  392: 
+</span><span class="">  393: 	key      valid:   a key in the English catalog
+</span><span class="">  394: 	         invalid: &quot;&quot; (1 character is the minimum), undef, a
+</span><span class="">  395: 	                  reference, an unknown key (fatal: &quot;Unknown message
+</span><span class="">  396: 	                  key&quot;), a known key with extra characters
+</span><span class="">  397: 	count    valid:   whole numbers from 0 up (0 is the minimum; 2**53
+</span><span class="">  398: 	                  works); undef means &quot;no count&quot;
+</span><span class="">  399: 	         invalid: -1 and below, fractions (1.5), words
+</span><span class="">  400: 	         edges:   English and German: 1 is singular, 0 and 2 plural.
+</span><span class="">  401: 	                  French: 0 and 1 singular.  Japanese, Korean,
+</span><span class="">  402: 	                  Chinese: always the &quot;other&quot; form
+</span><span class="">  403: 	params   any number of values, including none; each value is
+</span><span class="">  404: 	         copied into the text exactly, whether it is a Perl
+</span><span class="">  405: 	         character string or UTF-8 bytes (non-ASCII letters,
+</span><span class="">  406: 	         emoji, joined emoji, combining marks, right-to-left text)
+</span><span class="">  407: 	context  any string; one the template does not have (including &quot;&quot;)
+</span><span class="">  408: 	         is ignored; a reference is invalid
+</span><span class="">  409: 	language (from the environment) the first 2 or 3 letters, in any
+</span><span class="">  410: 	         case; 1 letter, non-ASCII letters, C and POSIX all mean
+</span><span class="">  411: 	         &quot;no language&quot;
+</span><span class="">  412: 
+</span><span class="">  413: =head4 Output
+</span><span class="">  414: 
+</span><span class="">  415: 	{
+</span><span class="">  416: 		type =&gt; &#39;string&#39;,
+</span><span class="">  417: 	}
+</span><span class="">  418: 
+</span><span class="">  419: =head3 MESSAGES
 </span><span class="">  420: 
-</span><span class="">  421: =head3 PSEUDOCODE
-</span><span class="">  422: 
-</span><span class="">  423: 	check key and args
-</span><span class="">  424: 	lang := the object&#39;s language, or the language from the environment,
-</span><span class="">  425: 	        or English if there is no catalog for it
-</span><span class="">  426: 	for try in (lang, then en if lang is not en):   # at most 2 tries, no recursion
-</span><span class="">  427: 		entry := catalog[try][key], or else catalog[en][key]
-</span><span class="">  428: 		if entry has forms and one matches args.context:
-</span><span class="">  429: 			entry := that form
-</span><span class="">  430: 		if entry still has forms:
-</span><span class="">  431: 			entry := the form for plural_category(try, count),
-</span><span class="">  432: 			         or else the &quot;other&quot; form
-</span><span class="">  433: 		stop if entry is now a plain string
-</span><span class="">  434: 	if no try gave a plain string: confess (the catalog is broken)
-</span><span class="">  435: 	if there are params: return sprintf(entry, params)
-</span><span class="">  436: 	else: return entry unchanged
+</span><span class="">  421: 	+-----------------------------+-------------------------------+---------------------------------+
+</span><span class="">  422: 	| Message                     | Meaning                       | What to do                      |
+</span><span class="">  423: 	+-----------------------------+-------------------------------+---------------------------------+
+</span><span class="">  424: 	| Unknown message key: KEY    | KEY is not in the English     | Programming error: add KEY to   |
+</span><span class="">  425: 	|  (fatal, with stack trace)  | catalog                       | $MESSAGES{en}                   |
+</span><span class="">  426: 	| Required parameter &#39;key&#39; is | No key was given              | Give a key                      |
+</span><span class="">  427: 	|  missing (fatal)            |                               |                                 |
+</span><span class="">  428: 	| Unknown parameter &#39;X&#39;       | args has a field that is not  | Use only params, count and      |
+</span><span class="">  429: 	|  (fatal)                    | params, count or context      | context                         |
+</span><span class="">  430: 	| Parameter &#39;count&#39; (X) must  | count is negative or not a    | Give a whole number, 0 or more  |
+</span><span class="">  431: 	|  be ... (fatal)             | whole number                  |                                 |
+</span><span class="">  432: 	| Parameter &#39;params&#39; must be  | params is not an array        | Give an array reference         |
+</span><span class="">  433: 	|  an arrayref (fatal)        | reference                     |                                 |
+</span><span class="">  434: 	+-----------------------------+-------------------------------+---------------------------------+
+</span><span class="">  435: 
+</span><span class="">  436: =head3 PSEUDOCODE
 </span><span class="">  437: 
-</span><span class="">  438: =cut
-</span><span class="">  439: 
-</span><span class="">  440: sub i18n {
-</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">441 → 477 → 485</span></span>  441: 	my $self = shift;
-</span><span class="">  442: 
-</span><span class="">  443: 	# Validation uses eval internally; the caller&#39;s $@ must survive
-</span><span class="">  444: 	local $@;
-</span><span class="">  445: 
-</span><span class="">  446: 	# Accept both i18n(&#39;key&#39;, {...}) and i18n({ key =&gt; ..., args =&gt; {...} })
-</span><span class="">  447: 	# Undefined values are dropped so that validation reports them as missing
-</span><span class="">  448: 	my $in = (ref($_[0]) eq &#39;HASH&#39;) ? { %{ $_[0] } } : { key =&gt; $_[0], args =&gt; $_[1] };
-</span><span class="">  449: 	delete @{$in}{ grep { !defined $in-&gt;{$_} } keys %{$in} };
-</span><span class="">  450: 
-</span><span class="">  451: 	my $params = validate_strict(
-</span><span class="">  452: 		schema =&gt; {
-</span><span class="">  453: 			key  =&gt; { type =&gt; &#39;string&#39;, min =&gt; 1 },
-</span><span class="">  454: 			args =&gt; {
-</span><span class="">  455: 				type     =&gt; &#39;hashref&#39;,
-</span><span class="">  456: 				optional =&gt; 1,
-</span><span class="">  457: 				schema   =&gt; {
-</span><span class="">  458: 					params  =&gt; { type =&gt; &#39;arrayref&#39;, optional =&gt; 1 },
-</span><span class="">  459: 					count   =&gt; { type =&gt; &#39;integer&#39;, optional =&gt; 1, min =&gt; 0 },
-</span><span class="">  460: 					context =&gt; { type =&gt; &#39;string&#39;, optional =&gt; 1 },
-</span><span class="">  461: 				},
-</span><span class="">  462: 			},
-</span><span class="">  463: 		},
-</span><span class="">  464: 		input =&gt; $in,
-</span><span class="">  465: 	);
-</span><span class="">  466: 	my $args = $params-&gt;{args} || {};
-</span><span class="">  467: 
-</span><span class="">  468: 	# Resolve the template in the user&#39;s language, falling back to English
-</span><span class="">  469: 	# Try the chosen language, then English: a fixed list of at most two
-</span><span class="">  470: 	# attempts.  There is deliberately no recursion here, so no mistake in
-</span><span class="">  471: 	# choosing the language (a bug, or a mutation of _language) can ever
-</span><span class="">  472: 	# make this loop forever.
-</span><span class="">  473: 	my $key = $params-&gt;{key};
-</span><span class="">  474: 	# An undefined language (only possible through a bug) means English
-</span><span class="">  475: 	my $lang = $self-&gt;_language() // $DEFAULT_LANGUAGE;
-</span><span class="">  476: 	my $entry;
-</span><span class="">  477: 	foreach my $try ($lang eq $DEFAULT_LANGUAGE ? ($lang) : ($lang, $DEFAULT_LANGUAGE)) {
-</span><span class="">  478: 		$entry = _narrow($self-&gt;_lookup($try, $key), $try, $args);
-</span><span class="">  479: 		last if defined $entry;
-</span><span class="">  480: 	}
-</span><span class="">  481: 
-</span><span class="">  482: 	# Premise 1: every English template is complete.  Premise 2: not even
-</span><span class="">  483: 	# the English one gave a usable form.  Conclusion: the catalog is
-</span><span class="">  484: 	# broken, which is a programming error.
-</span><span class="">  485: 	_unknown_key($key) unless defined $entry;
-</span><span class="">  486: 
-</span><span class="">  487: 	# A literal message with no placeholders is returned untouched, which
-</span><span class="">  488: 	# protects any &#39;%&#39; characters it contains from sprintf()
-</span><span class="">  489: 	# Use the validated array reference directly rather than copying it
-</span><span class="">  490: 	my $values = $args-&gt;{params};
-</span><span class="">  491: 	my $text = ($values &amp;&amp; @{$values}) ? sprintf($entry, @{$values}) : $entry;
-</span><span class="">  492: 
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  493: 	return set_return($text, { type =&gt; &#39;string&#39; });
-</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  494: }
-</span><span class="">  495: 
-</span><span class="">  496: # _croak_i18n
-</span><span class="">  497: # Purpose:        Throw a localised exception from the caller&#39;s point of view.
-</span><span class="">  498: # Entry Criteria: $key is a catalog key; $args is an optional i18n() hashref.
-</span><span class="">  499: # Exit Status:    Never returns; always croaks.
-</span><span class="">  500: # Side Effects:   Unwinds the stack with a Carp exception.
-</span><span class="">  501: sub _croak_i18n :Protected {
-</span><span class="">  502: 	my ($self, $key, $args) = @_;
-</span><span class="">  503: 
-</span><span class="">  504: 	croak($self-&gt;i18n($key, $args));
-</span><span class="">  505: }
-</span><span class="">  506: 
-</span><span class="">  507: # _carp_i18n
-</span><span class="">  508: # Purpose:        Emit a localised warning from the caller&#39;s point of view.
-</span><span class="">  509: # Entry Criteria: $key is a catalog key; $args is an optional i18n() hashref.
-</span><span class="">  510: # Exit Status:    Returns $self for chaining.
-</span><span class="">  511: # Side Effects:   Writes a warning to STDERR (or $SIG{__WARN__}).
-</span><span class="">  512: sub _carp_i18n :Protected {
-</span><span class="">  513: 	my ($self, $key, $args) = @_;
-</span><span class="">  514: 
-</span><span class="">  515: 	carp($self-&gt;_printable($self-&gt;i18n($key, $args)));
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  516: 	return $self;
-</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  517: }
+</span><span class="">  438: 	check key and args
+</span><span class="">  439: 	lang := the object&#39;s language, or the language from the environment,
+</span><span class="">  440: 	        or English if there is no catalog for it
+</span><span class="">  441: 	for try in (lang, then en if lang is not en):   # at most 2 tries, no recursion
+</span><span class="">  442: 		entry := catalog[try][key], or else catalog[en][key]
+</span><span class="">  443: 		if entry has forms and one matches args.context:
+</span><span class="">  444: 			entry := that form
+</span><span class="">  445: 		if entry still has forms:
+</span><span class="">  446: 			entry := the form for plural_category(try, count),
+</span><span class="">  447: 			         or else the &quot;other&quot; form
+</span><span class="">  448: 		stop if entry is now a plain string
+</span><span class="">  449: 	if no try gave a plain string: confess (the catalog is broken)
+</span><span class="">  450: 	if there are params: return sprintf(entry, params)
+</span><span class="">  451: 	else: return entry unchanged
+</span><span class="">  452: 
+</span><span class="">  453: =cut
+</span><span class="">  454: 
+</span><span class="">  455: sub i18n {
+</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">456 → 492 → 500</span></span>  456: 	my $self = shift;
+</span><span class="">  457: 
+</span><span class="">  458: 	# Validation uses eval internally; the caller&#39;s $@ must survive
+</span><span class="">  459: 	local $@;
+</span><span class="">  460: 
+</span><span class="">  461: 	# Accept both i18n(&#39;key&#39;, {...}) and i18n({ key =&gt; ..., args =&gt; {...} })
+</span><span class="">  462: 	# Undefined values are dropped so that validation reports them as missing
+</span><span class="">  463: 	my $in = (ref($_[0]) eq &#39;HASH&#39;) ? { %{ $_[0] } } : { key =&gt; $_[0], args =&gt; $_[1] };
+</span><span class="">  464: 	delete @{$in}{ grep { !defined $in-&gt;{$_} } keys %{$in} };
+</span><span class="">  465: 
+</span><span class="">  466: 	my $params = validate_strict(
+</span><span class="">  467: 		schema =&gt; {
+</span><span class="">  468: 			key  =&gt; { type =&gt; &#39;string&#39;, min =&gt; 1 },
+</span><span class="">  469: 			args =&gt; {
+</span><span class="">  470: 				type     =&gt; &#39;hashref&#39;,
+</span><span class="">  471: 				optional =&gt; 1,
+</span><span class="">  472: 				schema   =&gt; {
+</span><span class="">  473: 					params  =&gt; { type =&gt; &#39;arrayref&#39;, optional =&gt; 1 },
+</span><span class="">  474: 					count   =&gt; { type =&gt; &#39;integer&#39;, optional =&gt; 1, min =&gt; 0 },
+</span><span class="">  475: 					context =&gt; { type =&gt; &#39;string&#39;, optional =&gt; 1 },
+</span><span class="">  476: 				},
+</span><span class="">  477: 			},
+</span><span class="">  478: 		},
+</span><span class="">  479: 		input =&gt; $in,
+</span><span class="">  480: 	);
+</span><span class="">  481: 	my $args = $params-&gt;{args} || {};
+</span><span class="">  482: 
+</span><span class="">  483: 	# Resolve the template in the user&#39;s language, falling back to English
+</span><span class="">  484: 	# Try the chosen language, then English: a fixed list of at most two
+</span><span class="">  485: 	# attempts.  There is deliberately no recursion here, so no mistake in
+</span><span class="">  486: 	# choosing the language (a bug, or a mutation of _language) can ever
+</span><span class="">  487: 	# make this loop forever.
+</span><span class="">  488: 	my $key = $params-&gt;{key};
+</span><span class="">  489: 	# An undefined language (only possible through a bug) means English
+</span><span class="">  490: 	my $lang = $self-&gt;_language() // $DEFAULT_LANGUAGE;
+</span><span class="">  491: 	my $entry;
+</span><span class="">  492: 	foreach my $try ($lang eq $DEFAULT_LANGUAGE ? ($lang) : ($lang, $DEFAULT_LANGUAGE)) {
+</span><span class="">  493: 		$entry = _narrow($self-&gt;_lookup($try, $key), $try, $args);
+</span><span class="">  494: 		last if defined $entry;
+</span><span class="">  495: 	}
+</span><span class="">  496: 
+</span><span class="">  497: 	# Premise 1: every English template is complete.  Premise 2: not even
+</span><span class="">  498: 	# the English one gave a usable form.  Conclusion: the catalog is
+</span><span class="">  499: 	# broken, which is a programming error.
+</span><span class="">  500: 	_unknown_key($key) unless defined $entry;
+</span><span class="">  501: 
+</span><span class="">  502: 	# A literal message with no placeholders is returned untouched, which
+</span><span class="">  503: 	# protects any &#39;%&#39; characters it contains from sprintf()
+</span><span class="">  504: 	# Use the validated array reference directly rather than copying it
+</span><span class="">  505: 	my $values = $args-&gt;{params};
+</span><span class="">  506: 	my $text = ($values &amp;&amp; @{$values}) ? sprintf($entry, @{$values}) : $entry;
+</span><span class="">  507: 
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  508: 	return set_return($text, { type =&gt; &#39;string&#39; });
+</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  509: }
+</span><span class="">  510: 
+</span><span class="">  511: # _croak_i18n
+</span><span class="">  512: # Purpose:        Throw a localised exception from the caller&#39;s point of view.
+</span><span class="">  513: # Entry Criteria: $key is a catalog key; $args is an optional i18n() hashref.
+</span><span class="">  514: # Exit Status:    Never returns; always croaks.
+</span><span class="">  515: # Side Effects:   Unwinds the stack with a Carp exception.
+</span><span class="">  516: sub _croak_i18n :Protected {
+</span><span class="">  517: 	my ($self, $key, $args) = @_;
 </span><span class="">  518: 
-</span><span class="">  519: # _printable
-</span><span class="">  520: # Purpose:        Make text safe to show on a terminal or write to a log,
-</span><span class="">  521: #                 by replacing control characters with visible escapes
-</span><span class="">  522: #                 such as \x1B.  Text may come from a hostile database
-</span><span class="">  523: #                 (table names, mdbtools error output).
-</span><span class="">  524: # Entry Criteria: $text is a string (Perl characters or UTF-8 bytes) or undef.
-</span><span class="">  525: # Exit Status:    Returns the escaped string (&#39;&#39; for undef).
-</span><span class="">  526: # Side Effects:   None.
-</span><span class="">  527: sub _printable :Protected {
-</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">528 → 531 → 536</span></span>  528: 	my ($self, $text) = @_;
+</span><span class="">  519: 	croak($self-&gt;i18n($key, $args));
+</span><span class="">  520: }
+</span><span class="">  521: 
+</span><span class="">  522: # _carp_i18n
+</span><span class="">  523: # Purpose:        Emit a localised warning from the caller&#39;s point of view.
+</span><span class="">  524: # Entry Criteria: $key is a catalog key; $args is an optional i18n() hashref.
+</span><span class="">  525: # Exit Status:    Returns $self for chaining.
+</span><span class="">  526: # Side Effects:   Writes a warning to STDERR (or $SIG{__WARN__}).
+</span><span class="">  527: sub _carp_i18n :Protected {
+</span><span class="">  528: 	my ($self, $key, $args) = @_;
 </span><span class="">  529: 
-</span><span class="">  530: 	$text //= &#39;&#39;;
-</span><span class="survived-1 tooltip" data-tooltip="Mutation survived. Add targeted tests to validate this branch.">  531: 	if(utf8::is_utf8($text)) {
+</span><span class="">  530: 	carp($self-&gt;_printable($self-&gt;i18n($key, $args)));
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  531: 	return $self;
+</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  532: }
+</span><span class="">  533: 
+</span><span class="">  534: # _printable
+</span><span class="">  535: # Purpose:        Make text safe to show on a terminal or write to a log,
+</span><span class="">  536: #                 by replacing control characters with visible escapes
+</span><span class="">  537: #                 such as \x1B.  Text may come from a hostile database
+</span><span class="">  538: #                 (table names, mdbtools error output).
+</span><span class="">  539: # Entry Criteria: $text is a string (Perl characters or UTF-8 bytes) or undef.
+</span><span class="">  540: # Exit Status:    Returns the escaped string (&#39;&#39; for undef).
+</span><span class="">  541: # Side Effects:   None.
+</span><span class="">  542: sub _printable :Protected {
+</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">543 → 546 → 551</span></span>  543: 	my ($self, $text) = @_;
+</span><span class="">  544: 
+</span><span class="">  545: 	$text //= &#39;&#39;;
+</span><span class="survived-1 tooltip" data-tooltip="Mutation survived. Add targeted tests to validate this branch.">  546: 	if(utf8::is_utf8($text)) {
 </span>
 					<details class="mutant-details">
 					<summary>Mutants (Total: 1, Killed: 0, Survived: 1)</summary>
 					<ul>
-				<li><b>COND_INV_531_2: Invert condition if to unless</b><br>MEDIUM: Add tests asserting both true and false outcomes
+				<li><b>COND_INV_546_2: Invert condition if to unless</b><br>MEDIUM: Add tests asserting both true and false outcomes
 </li></ul></details>
-<span class="">  532: 		$text =~ s/($UNPRINTABLE_RE)/sprintf(ord($1) &gt; 0xFF ? &#39;\\x{%X}&#39; : &#39;\\x%02X&#39;, ord $1)/ge;
-</span><span class="">  533: 	} else {
-</span><span class="">  534: 		$text =~ s{($UNPRINTABLE_BYTES_RE)}{join(q{}, map { sprintf(q{\\x%02X}, ord) } split(//, $1))}ge;
-</span><span class="">  535: 	}
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  536: 	return $text;
-</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  537: }
-</span><span class="">  538: 
-</span><span class="">  539: # _language
-</span><span class="">  540: # Purpose:        Work out which catalog language to use.
-</span><span class="">  541: # Entry Criteria: $self is a class name or an object (optionally with {language}).
-</span><span class="">  542: # Exit Status:    Returns a lower-case language code, e.g. &#39;en&#39; or &#39;de&#39;.
-</span><span class="">  543: # Side Effects:   None; reads %ENV only.
-</span><span class="">  544: sub _language :Private {
-</span><span class="">  545: 	my $self = shift;
-</span><span class="">  546: 
-</span><span class="">  547: 	# An explicit per-object choice beats anything in the environment.
-</span><span class="">  548: 	# Otherwise take the first meaningful locale variable; LANGUAGE may be
-</span><span class="">  549: 	# a colon-separated preference list, so only its first entry counts.
-</span><span class="">  550: 	# Empty values and C/POSIX mean &quot;no preference&quot;, so they are skipped.
-</span><span class="">  551: 	my $wanted = ref($self) &amp;&amp; $self-&gt;{language};
-</span><span class="">  552: 	($wanted) = grep { length &amp;&amp; !$NEUTRAL_LOCALES{$_} }
-</span><span class="">  553: 		map { (split /:/, $ENV{$_} // &#39;&#39;)[0] // &#39;&#39; } @LOCALE_VARIABLES
-</span><span class="">  554: 		unless $wanted;
-</span><span class="">  555: 
-</span><span class="">  556: 	# &quot;de_DE.UTF-8@euro&quot; -&gt; &quot;de&quot;; anything unparseable means English
-</span><span class="">  557: 	my ($code) = ($wanted // &#39;&#39;) =~ /\A([A-Za-z]{2,3})(?:[_\-.@]|\z)/;
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  558: 	return (defined($code) &amp;&amp; exists($MESSAGES{lc $code})) ? lc($code) : $DEFAULT_LANGUAGE;
-</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  559: }
-</span><span class="">  560: 
-</span><span class="">  561: # _lookup
-</span><span class="">  562: # Purpose:        Fetch the raw template for $key in $lang.
-</span><span class="">  563: # Entry Criteria: $lang is a catalog language; $key is a non-empty string.
-</span><span class="">  564: # Exit Status:    Returns a string or hashref template.
-</span><span class="">  565: # Side Effects:   confess()es if $key is missing from the default catalog,
-</span><span class="">  566: #                 because that can only be a programming error.
-</span><span class="">  567: sub _lookup :Private {
-</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">568 → 571 → 575</span></span>  568: 	my ($self, $lang, $key) = @_;
-</span><span class="">  569: 
-</span><span class="">  570: 	# A partial translation silently falls back to English per key
-</span><span class="">  571: 	foreach my $catalog ($MESSAGES{$lang}, $MESSAGES{$DEFAULT_LANGUAGE}) {
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  572: 		return $catalog-&gt;{$key} if $catalog &amp;&amp; exists($catalog-&gt;{$key});
-</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  573: 	}
-</span><span class="">  574: 
-</span><span class="survived-2 tooltip" data-tooltip="Boolean logic mutation survived. Add tests covering both true and false paths. Return value mutation survived. Add tests asserting exact return values.">  575: 	return _unknown_key($key);
+<span class="">  547: 		$text =~ s/($UNPRINTABLE_RE)/sprintf(ord($1) &gt; 0xFF ? &#39;\\x{%X}&#39; : &#39;\\x%02X&#39;, ord $1)/ge;
+</span><span class="">  548: 	} else {
+</span><span class="">  549: 		$text =~ s{($UNPRINTABLE_BYTES_RE)}{join(q{}, map { sprintf(q{\\x%02X}, ord) } split(//, $1))}ge;
+</span><span class="">  550: 	}
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  551: 	return $text;
+</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  552: }
+</span><span class="">  553: 
+</span><span class="">  554: # _language
+</span><span class="">  555: # Purpose:        Work out which catalog language to use.
+</span><span class="">  556: # Entry Criteria: $self is a class name or an object (optionally with {language}).
+</span><span class="">  557: # Exit Status:    Returns a lower-case language code, e.g. &#39;en&#39; or &#39;de&#39;.
+</span><span class="">  558: # Side Effects:   None; reads %ENV only.
+</span><span class="">  559: sub _language :Private {
+</span><span class="">  560: 	my $self = shift;
+</span><span class="">  561: 
+</span><span class="">  562: 	# An explicit per-object choice beats anything in the environment.
+</span><span class="">  563: 	# Otherwise take the first meaningful locale variable; LANGUAGE may be
+</span><span class="">  564: 	# a colon-separated preference list, so only its first entry counts.
+</span><span class="">  565: 	# Empty values and C/POSIX mean &quot;no preference&quot;, so they are skipped.
+</span><span class="">  566: 	my $wanted = ref($self) &amp;&amp; $self-&gt;{language};
+</span><span class="">  567: 	($wanted) = grep { length &amp;&amp; !$NEUTRAL_LOCALES{$_} }
+</span><span class="">  568: 		map { (split /:/, $ENV{$_} // &#39;&#39;)[0] // &#39;&#39; } @LOCALE_VARIABLES
+</span><span class="">  569: 		unless $wanted;
+</span><span class="">  570: 
+</span><span class="">  571: 	# &quot;de_DE.UTF-8@euro&quot; -&gt; &quot;de&quot;; anything unparseable means English
+</span><span class="">  572: 	my ($code) = ($wanted // &#39;&#39;) =~ /\A([A-Za-z]{2,3})(?:[_\-.@]|\z)/;
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  573: 	return (defined($code) &amp;&amp; exists($MESSAGES{lc $code})) ? lc($code) : $DEFAULT_LANGUAGE;
+</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  574: }
+</span><span class="">  575: 
+</span><span class="">  576: # _lookup
+</span><span class="">  577: # Purpose:        Fetch the raw template for $key in $lang.
+</span><span class="">  578: # Entry Criteria: $lang is a catalog language; $key is a non-empty string.
+</span><span class="">  579: # Exit Status:    Returns a string or hashref template.
+</span><span class="">  580: # Side Effects:   confess()es if $key is missing from the default catalog,
+</span><span class="">  581: #                 because that can only be a programming error.
+</span><span class="">  582: sub _lookup :Private {
+</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">583 → 586 → 590</span></span>  583: 	my ($self, $lang, $key) = @_;
+</span><span class="">  584: 
+</span><span class="">  585: 	# A partial translation silently falls back to English per key
+</span><span class="">  586: 	foreach my $catalog ($MESSAGES{$lang}, $MESSAGES{$DEFAULT_LANGUAGE}) {
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  587: 		return $catalog-&gt;{$key} if $catalog &amp;&amp; exists($catalog-&gt;{$key});
+</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  588: 	}
+</span><span class="">  589: 
+</span><span class="survived-2 tooltip" data-tooltip="Boolean logic mutation survived. Add tests covering both true and false paths. Return value mutation survived. Add tests asserting exact return values.">  590: 	return _unknown_key($key);
 </span>
 					<details class="mutant-details">
 					<summary>Mutants (Total: 2, Killed: 0, Survived: 2)</summary>
 					<ul>
-				<li><b>BOOL_NEGATE_575_2: Negate boolean return expression</b><br>MEDIUM: Add tests asserting both true and false outcomes
+				<li><b>BOOL_NEGATE_590_2: Negate boolean return expression</b><br>MEDIUM: Add tests asserting both true and false outcomes
 
 								<div class="suggested-test">
 								<div class="suggest-label">🧪 Suggested Test</div>
@@ -932,7 +947,7 @@ Approximate LCSAJ segments: 33<br>
 ok( !func(INPUT), &#39;Verify boolean branch behaviour&#39; );
 </pre>
 								</div>
-							</li><li><b>RETURN_UNDEF_575_2: Replace return expression with undef</b><br>LOW: Mutation survived, but impact may be minor
+							</li><li><b>RETURN_UNDEF_590_2: Replace return expression with undef</b><br>LOW: Mutation survived, but impact may be minor
 
 								<div class="suggested-test">
 								<div class="suggest-label">🧪 Suggested Test</div>
@@ -941,182 +956,182 @@ is( func(INPUT), EXPECTED, &#39;Verify correct return value&#39; );
 </pre>
 								</div>
 							</li></ul></details>
-<span class="">  576: }
-</span><span class="">  577: 
-</span><span class="">  578: # _narrow
-</span><span class="">  579: # Purpose:        Reduce a template to one sprintf() format: first the
-</span><span class="">  580: #                 form for the context (if the template has one), then
-</span><span class="">  581: #                 the plural form for the count, falling back to &quot;other&quot;.
-</span><span class="">  582: # Entry Criteria: $entry is a string or hashref template; $lang is the
-</span><span class="">  583: #                 language whose plural rule applies; $args is the
-</span><span class="">  584: #                 validated i18n() args hashref.
-</span><span class="">  585: # Exit Status:    Returns a plain string, or undef if the template has no
-</span><span class="">  586: #                 usable form (a gap in a translation).
-</span><span class="">  587: # Side Effects:   None.  A plain function, not a method.
-</span><span class="">  588: sub _narrow :Private {
-</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">589 → 591 → 594</span></span>  589: 	my ($entry, $lang, $args) = @_;
-</span><span class="">  590: 
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  591: 	if(ref($entry) eq &#39;HASH&#39; &amp;&amp; defined($args-&gt;{context}) &amp;&amp; exists($entry-&gt;{$args-&gt;{context}})) {
-</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="">  592: 		$entry = $entry-&gt;{$args-&gt;{context}};
-</span><span class="">  593: 	}
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic."><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">594 → 594 → 598</span></span>  594: 	if(ref($entry) eq &#39;HASH&#39;) {
-</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="">  595: 		my $category = _plural_category($lang, $args-&gt;{count});
-</span><span class="">  596: 		$entry = exists($entry-&gt;{$category}) ? $entry-&gt;{$category} : $entry-&gt;{$PLURAL_OTHER};
-</span><span class="">  597: 	}
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  598: 	return (defined($entry) &amp;&amp; !ref($entry)) ? $entry : undef;
-</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  599: }
-</span><span class="">  600: 
-</span><span class="">  601: # _unknown_key
-</span><span class="">  602: # Purpose:        Report a message key that the English catalog lacks.
-</span><span class="">  603: # Entry Criteria: $key is the key that could not be resolved.
-</span><span class="">  604: # Exit Status:    Never returns; always confesses (a stack trace helps,
-</span><span class="">  605: #                 because this can only be a programming error).
-</span><span class="">  606: # Side Effects:   Unwinds the stack.
-</span><span class="">  607: # The text is built directly from the catalog, not through i18n(), which
-</span><span class="">  608: # could recurse forever if &#39;unknown_message&#39; itself were missing.
-</span><span class="">  609: sub _unknown_key :Private {
-</span><span class="">  610: 	my $key = shift;
-</span><span class="">  611: 
-</span><span class="">  612: 	confess(sprintf($MESSAGES{$DEFAULT_LANGUAGE}{unknown_message} || &#39;Unknown message key: %s&#39;, $key));
-</span><span class="">  613: }
-</span><span class="">  614: 
-</span><span class="">  615: # _plural_category
-</span><span class="">  616: # Purpose:        Map a count to a CLDR plural category for a language.
-</span><span class="">  617: # Entry Criteria: $lang is a language code; $count is a non-negative
-</span><span class="">  618: #                 integer or undef (undef means &quot;no plural choice&quot;).
-</span><span class="">  619: # Exit Status:    Returns a category name such as &#39;one&#39; or &#39;other&#39;.
-</span><span class="">  620: # Side Effects:   None.  A plain function, not a method.
-</span><span class="">  621: sub _plural_category :Private {
-</span><span class="">  622: 	my ($lang, $count) = @_;
-</span><span class="">  623: 
-</span><span class="">  624: 	my $rule = $PLURAL_RULES{$lang} || $PLURAL_RULES{$DEFAULT_LANGUAGE};
-</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  625: 	return defined($count) ? $rule-&gt;($count) : $PLURAL_OTHER;
-</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  626: }
-</span><span class="">  627: 
-</span><span class="">  628: 1;
+<span class="">  591: }
+</span><span class="">  592: 
+</span><span class="">  593: # _narrow
+</span><span class="">  594: # Purpose:        Reduce a template to one sprintf() format: first the
+</span><span class="">  595: #                 form for the context (if the template has one), then
+</span><span class="">  596: #                 the plural form for the count, falling back to &quot;other&quot;.
+</span><span class="">  597: # Entry Criteria: $entry is a string or hashref template; $lang is the
+</span><span class="">  598: #                 language whose plural rule applies; $args is the
+</span><span class="">  599: #                 validated i18n() args hashref.
+</span><span class="">  600: # Exit Status:    Returns a plain string, or undef if the template has no
+</span><span class="">  601: #                 usable form (a gap in a translation).
+</span><span class="">  602: # Side Effects:   None.  A plain function, not a method.
+</span><span class="">  603: sub _narrow :Private {
+</span><span class=""><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">604 → 606 → 609</span></span>  604: 	my ($entry, $lang, $args) = @_;
+</span><span class="">  605: 
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  606: 	if(ref($entry) eq &#39;HASH&#39; &amp;&amp; defined($args-&gt;{context}) &amp;&amp; exists($entry-&gt;{$args-&gt;{context}})) {
+</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="">  607: 		$entry = $entry-&gt;{$args-&gt;{context}};
+</span><span class="">  608: 	}
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic."><span class="lcsaj-tip"><span class="lcsaj-dot">●</span><span class="lcsaj-tip-text">609 → 609 → 613</span></span>  609: 	if(ref($entry) eq &#39;HASH&#39;) {
+</span><p> <b> Mutants (Total: 1, Killed: 1, Survived: 0)</b><p><span class="">  610: 		my $category = _plural_category($lang, $args-&gt;{count});
+</span><span class="">  611: 		$entry = exists($entry-&gt;{$category}) ? $entry-&gt;{$category} : $entry-&gt;{$PLURAL_OTHER};
+</span><span class="">  612: 	}
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  613: 	return (defined($entry) &amp;&amp; !ref($entry)) ? $entry : undef;
+</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  614: }
+</span><span class="">  615: 
+</span><span class="">  616: # _unknown_key
+</span><span class="">  617: # Purpose:        Report a message key that the English catalog lacks.
+</span><span class="">  618: # Entry Criteria: $key is the key that could not be resolved.
+</span><span class="">  619: # Exit Status:    Never returns; always confesses (a stack trace helps,
+</span><span class="">  620: #                 because this can only be a programming error).
+</span><span class="">  621: # Side Effects:   Unwinds the stack.
+</span><span class="">  622: # The text is built directly from the catalog, not through i18n(), which
+</span><span class="">  623: # could recurse forever if &#39;unknown_message&#39; itself were missing.
+</span><span class="">  624: sub _unknown_key :Private {
+</span><span class="">  625: 	my $key = shift;
+</span><span class="">  626: 
+</span><span class="">  627: 	confess(sprintf($MESSAGES{$DEFAULT_LANGUAGE}{unknown_message} || &#39;Unknown message key: %s&#39;, $key));
+</span><span class="">  628: }
 </span><span class="">  629: 
-</span><span class="">  630: __END__
-</span><span class="">  631: 
-</span><span class="">  632: =head1 LIMITATIONS
-</span><span class="">  633: 
-</span><span class="">  634: =over 4
-</span><span class="">  635: 
-</span><span class="">  636: =item * Only an English catalog is included.  Other languages fall back
-</span><span class="">  637: to English, one key at a time.
+</span><span class="">  630: # _plural_category
+</span><span class="">  631: # Purpose:        Map a count to a CLDR plural category for a language.
+</span><span class="">  632: # Entry Criteria: $lang is a language code; $count is a non-negative
+</span><span class="">  633: #                 integer or undef (undef means &quot;no plural choice&quot;).
+</span><span class="">  634: # Exit Status:    Returns a category name such as &#39;one&#39; or &#39;other&#39;.
+</span><span class="">  635: # Side Effects:   None.  A plain function, not a method.
+</span><span class="">  636: sub _plural_category :Private {
+</span><span class="">  637: 	my ($lang, $count) = @_;
 </span><span class="">  638: 
-</span><span class="">  639: =item * Plural rules exist only for a few languages (C&lt;en&gt;, C&lt;de&gt;, C&lt;fr&gt;,
-</span><span class="">  640: C&lt;ja&gt;, C&lt;ko&gt;, C&lt;zh&gt;).  Other languages use the English rule.
-</span><span class="">  641: 
-</span><span class="">  642: =item * Messages from other modules (for example
-</span><span class="">  643: L&lt;Params::Validate::Strict&gt; and L&lt;autodie&gt;) are not translated.
+</span><span class="">  639: 	my $rule = $PLURAL_RULES{$lang} || $PLURAL_RULES{$DEFAULT_LANGUAGE};
+</span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  640: 	return defined($count) ? $rule-&gt;($count) : $PLURAL_OTHER;
+</span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  641: }
+</span><span class="">  642: 
+</span><span class="">  643: 1;
 </span><span class="">  644: 
-</span><span class="">  645: =item * L&lt;Sub::Private&gt; and L&lt;Sub::Protected&gt; set up their protection at
-</span><span class="">  646: C&lt;CHECK&gt; time.  If this module is first loaded at run time (with
-</span><span class="">  647: C&lt;require&gt; after the program has been compiled), Perl warns
-</span><span class="">  648: &quot;Too late to run CHECK block&quot; and the private and protected helpers are
-</span><span class="">  649: B&lt;not&gt; protected.
+</span><span class="">  645: __END__
+</span><span class="">  646: 
+</span><span class="">  647: =head1 LIMITATIONS
+</span><span class="">  648: 
+</span><span class="">  649: =over 4
 </span><span class="">  650: 
-</span><span class="">  651: =back
-</span><span class="">  652: 
-</span><span class="">  653: =head1 SEE ALSO
-</span><span class="">  654: 
-</span><span class="">  655: L&lt;App::Access2CSV&gt;, L&lt;App::Access2CSV::Exporter&gt;
+</span><span class="">  651: =item * Only an English catalog is included.  Other languages fall back
+</span><span class="">  652: to English, one key at a time.
+</span><span class="">  653: 
+</span><span class="">  654: =item * Plural rules exist only for a few languages (C&lt;en&gt;, C&lt;de&gt;, C&lt;fr&gt;,
+</span><span class="">  655: C&lt;ja&gt;, C&lt;ko&gt;, C&lt;zh&gt;).  Other languages use the English rule.
 </span><span class="">  656: 
-</span><span class="">  657: =head1 AUTHOR
-</span><span class="">  658: 
-</span><span class="">  659: Nigel Horne, C&lt;&lt; &lt;njh at nigelhorne.com&gt; &gt;&gt;
-</span><span class="">  660: 
-</span><span class="">  661: =head1 LICENSE AND COPYRIGHT
-</span><span class="">  662: 
-</span><span class="">  663: This program is released under the same terms as Perl itself.
-</span><span class="">  664: 
-</span><span class="">  665: =head1 FORMAL SPECIFICATION
-</span><span class="">  666: 
-</span><span class="">  667: These schemas use the Z notation.  C&lt;?&gt; marks an input and C&lt;!&gt; an
-</span><span class="">  668: output.  You do not need to read this section to use the module.
+</span><span class="">  657: =item * Messages from other modules (for example
+</span><span class="">  658: L&lt;Params::Validate::Strict&gt; and L&lt;autodie&gt;) are not translated.
+</span><span class="">  659: 
+</span><span class="">  660: =item * L&lt;Sub::Private&gt; and L&lt;Sub::Protected&gt; set up their protection at
+</span><span class="">  661: C&lt;CHECK&gt; time.  If this module is first loaded at run time (with
+</span><span class="">  662: C&lt;require&gt; after the program has been compiled), Perl warns
+</span><span class="">  663: &quot;Too late to run CHECK block&quot; and the private and protected helpers are
+</span><span class="">  664: B&lt;not&gt; protected.
+</span><span class="">  665: 
+</span><span class="">  666: =back
+</span><span class="">  667: 
+</span><span class="">  668: =head1 SEE ALSO
 </span><span class="">  669: 
-</span><span class="">  670: 	[KEY, LANG, CTX, VALUE]
-</span><span class="">  671: 	CATEGORY ::= zero | one | two | few | many | other
-</span><span class="">  672: 	TEMPLATE ::= text&acirc;&#159;&uml;&acirc;&#159;&uml;seq CHAR&acirc;&#159;&copy;&acirc;&#159;&copy;
-</span><span class="">  673: 	           | forms&acirc;&#159;&uml;&acirc;&#159;&uml;(CTX &acirc;&#136;&ordf; CATEGORY) &acirc;&#135;&cedil; TEMPLATE&acirc;&#159;&copy;&acirc;&#159;&copy;
-</span><span class="">  674: 
-</span><span class="">  675: 	&acirc;&#148;&#140;&acirc;&#148;&#128; Catalog &acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  676: 	&acirc;&#148;&#130; MESSAGES : LANG &acirc;&#135;&cedil; (KEY &acirc;&#135;&cedil; TEMPLATE)
-</span><span class="">  677: 	&acirc;&#148;&#130; plural : LANG &Atilde;&#151; &acirc;&#132;&#149; &acirc;&#134;&#146; CATEGORY
-</span><span class="">  678: 	&acirc;&#148;&#156;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  679: 	&acirc;&#148;&#130; en &acirc;&#136;&#136; dom MESSAGES
-</span><span class="">  680: 	&acirc;&#148;&#148;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  670: L&lt;App::Access2CSV&gt;, L&lt;App::Access2CSV::Exporter&gt;
+</span><span class="">  671: 
+</span><span class="">  672: =head1 AUTHOR
+</span><span class="">  673: 
+</span><span class="">  674: Nigel Horne, C&lt;&lt; &lt;njh at nigelhorne.com&gt; &gt;&gt;
+</span><span class="">  675: 
+</span><span class="">  676: =head1 LICENSE AND COPYRIGHT
+</span><span class="">  677: 
+</span><span class="">  678: This program is released under the same terms as Perl itself.
+</span><span class="">  679: 
+</span><span class="">  680: =head1 FORMAL SPECIFICATION
 </span><span class="">  681: 
-</span><span class="">  682: =head2 i18n
-</span><span class="">  683: 
-</span><span class="">  684: 	&acirc;&#148;&#140;&acirc;&#148;&#128; I18n &acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  685: 	&acirc;&#148;&#130; &Icirc;&#158;Catalog
-</span><span class="">  686: 	&acirc;&#148;&#130; key? : KEY ; params? : seq VALUE ; count? : &acirc;&#132;&#149; ; context? : CTX
-</span><span class="">  687: 	&acirc;&#148;&#130; userLang : LANG ; lang : LANG ; msg! : seq CHAR
-</span><span class="">  688: 	&acirc;&#148;&#156;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  689: 	&acirc;&#148;&#130; key? &acirc;&#136;&#136; dom MESSAGES(en)
-</span><span class="">  690: 	&acirc;&#148;&#130; lang = (if userLang &acirc;&#136;&#136; dom MESSAGES then userLang else en)
-</span><span class="">  691: 	&acirc;&#148;&#130; t&acirc;&#130;&#128; = (if key? &acirc;&#136;&#136; dom MESSAGES(lang)
-</span><span class="">  692: 	&acirc;&#148;&#130;        then MESSAGES(lang)(key?) else MESSAGES(en)(key?))
-</span><span class="">  693: 	&acirc;&#148;&#130; t&acirc;&#130;&#129; = (if t&acirc;&#130;&#128; = forms(f) &acirc;&#136;&sect; context? &acirc;&#136;&#136; dom f then f(context?) else t&acirc;&#130;&#128;)
-</span><span class="">  694: 	&acirc;&#148;&#130; t&acirc;&#130;&#130; = (if t&acirc;&#130;&#129; = forms(g)
-</span><span class="">  695: 	&acirc;&#148;&#130;        then (if plural(lang, count?) &acirc;&#136;&#136; dom g
-</span><span class="">  696: 	&acirc;&#148;&#130;              then g(plural(lang, count?)) else g(other))
-</span><span class="">  697: 	&acirc;&#148;&#130;        else t&acirc;&#130;&#129;)
-</span><span class="">  698: 	&acirc;&#148;&#130; msg! = (if params? = &acirc;&#159;&uml;&acirc;&#159;&copy; then t&acirc;&#130;&#130; else sprintf(t&acirc;&#130;&#130;, params?))
-</span><span class="">  699: 	&acirc;&#148;&#148;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  700: 
-</span><span class="">  701: 	&acirc;&#148;&#140;&acirc;&#148;&#128; I18nUnknownKey &acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  702: 	&acirc;&#148;&#130; &Icirc;&#158;Catalog
-</span><span class="">  703: 	&acirc;&#148;&#130; key? : KEY ; error! : seq CHAR
-</span><span class="">  704: 	&acirc;&#148;&#156;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  705: 	&acirc;&#148;&#130; key? &acirc;&#136;&#137; dom MESSAGES(en)
-</span><span class="">  706: 	&acirc;&#148;&#130; error! = &quot;Unknown message key: &quot; &acirc;&#129;&#128; key?
-</span><span class="">  707: 	&acirc;&#148;&#148;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
-</span><span class="">  708: 
-</span><span class="">  709: =head1 STATE DIAGRAM
-</span><span class="">  710: 
-</span><span class="">  711: This module keeps no state between calls: C&lt;i18n&gt; only reads
-</span><span class="">  712: C&lt;%MESSAGES&gt; and C&lt;%ENV&gt;.  The diagram shows the steps of one call.
-</span><span class="">  713: Each box is a step.  Each arrow shows what decides the next step.
-</span><span class="">  714: 
-</span><span class="">  715: 	      i18n($key, \%args)
-</span><span class="">  716: 	              |
-</span><span class="">  717: 	              v
-</span><span class="">  718: 	     +------------------+  key missing, or args
-</span><span class="">  719: 	     |    VALIDATING    |  has a bad field
-</span><span class="">  720: 	     +------------------+-----------------------------+
-</span><span class="">  721: 	              | OK                                    |
-</span><span class="">  722: 	              v                                       |
-</span><span class="">  723: 	     +------------------+                             |
-</span><span class="">  724: 	     | CHOOSING LANGUAGE|  object language, else      |
-</span><span class="">  725: 	     |                  |  LANGUAGE/LC_ALL/           |
-</span><span class="">  726: 	     |                  |  LC_MESSAGES/LANG, else en  |
-</span><span class="">  727: 	     +------------------+                             |
-</span><span class="">  728: 	              |                                       |
-</span><span class="">  729: 	              v                                       v
-</span><span class="">  730: 	     +------------------+  key not in       +------------------+
-</span><span class="">  731: 	     |  LOOKING UP KEY  |  English either   |      FATAL       |
-</span><span class="">  732: 	     | (language, then  |------------------&gt;| croak / confess  |
-</span><span class="">  733: 	     |  English)        |                   +------------------+
-</span><span class="">  734: 	     +------------------+
-</span><span class="">  735: 	              | template found
-</span><span class="">  736: 	              v
-</span><span class="">  737: 	     +------------------+  plain text
-</span><span class="">  738: 	     | NARROWING FORMS  |-----------------------+
-</span><span class="">  739: 	     | 1. context form  |                       |
-</span><span class="">  740: 	     | 2. plural form   |                       |
-</span><span class="">  741: 	     |    (else other)  |                       |
-</span><span class="">  742: 	     +------------------+                       |
-</span><span class="">  743: 	              | one plain template left         |
-</span><span class="">  744: 	              v                                 v
-</span><span class="">  745: 	     +------------------+  no params    +------------------+
-</span><span class="">  746: 	     |   FORMATTING     |--------------&gt;|   return text    |
-</span><span class="">  747: 	     | sprintf(params)  |--------------&gt;|   unchanged /    |
-</span><span class="">  748: 	     +------------------+   params      |   formatted      |
-</span><span class="">  749: 	                                        +------------------+
-</span><span class="">  750: 
-</span><span class="">  751: =cut
+</span><span class="">  682: These schemas use the Z notation.  C&lt;?&gt; marks an input and C&lt;!&gt; an
+</span><span class="">  683: output.  You do not need to read this section to use the module.
+</span><span class="">  684: 
+</span><span class="">  685: 	[KEY, LANG, CTX, VALUE]
+</span><span class="">  686: 	CATEGORY ::= zero | one | two | few | many | other
+</span><span class="">  687: 	TEMPLATE ::= text&acirc;&#159;&uml;&acirc;&#159;&uml;seq CHAR&acirc;&#159;&copy;&acirc;&#159;&copy;
+</span><span class="">  688: 	           | forms&acirc;&#159;&uml;&acirc;&#159;&uml;(CTX &acirc;&#136;&ordf; CATEGORY) &acirc;&#135;&cedil; TEMPLATE&acirc;&#159;&copy;&acirc;&#159;&copy;
+</span><span class="">  689: 
+</span><span class="">  690: 	&acirc;&#148;&#140;&acirc;&#148;&#128; Catalog &acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  691: 	&acirc;&#148;&#130; MESSAGES : LANG &acirc;&#135;&cedil; (KEY &acirc;&#135;&cedil; TEMPLATE)
+</span><span class="">  692: 	&acirc;&#148;&#130; plural : LANG &Atilde;&#151; &acirc;&#132;&#149; &acirc;&#134;&#146; CATEGORY
+</span><span class="">  693: 	&acirc;&#148;&#156;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  694: 	&acirc;&#148;&#130; en &acirc;&#136;&#136; dom MESSAGES
+</span><span class="">  695: 	&acirc;&#148;&#148;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  696: 
+</span><span class="">  697: =head2 i18n
+</span><span class="">  698: 
+</span><span class="">  699: 	&acirc;&#148;&#140;&acirc;&#148;&#128; I18n &acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  700: 	&acirc;&#148;&#130; &Icirc;&#158;Catalog
+</span><span class="">  701: 	&acirc;&#148;&#130; key? : KEY ; params? : seq VALUE ; count? : &acirc;&#132;&#149; ; context? : CTX
+</span><span class="">  702: 	&acirc;&#148;&#130; userLang : LANG ; lang : LANG ; msg! : seq CHAR
+</span><span class="">  703: 	&acirc;&#148;&#156;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  704: 	&acirc;&#148;&#130; key? &acirc;&#136;&#136; dom MESSAGES(en)
+</span><span class="">  705: 	&acirc;&#148;&#130; lang = (if userLang &acirc;&#136;&#136; dom MESSAGES then userLang else en)
+</span><span class="">  706: 	&acirc;&#148;&#130; t&acirc;&#130;&#128; = (if key? &acirc;&#136;&#136; dom MESSAGES(lang)
+</span><span class="">  707: 	&acirc;&#148;&#130;        then MESSAGES(lang)(key?) else MESSAGES(en)(key?))
+</span><span class="">  708: 	&acirc;&#148;&#130; t&acirc;&#130;&#129; = (if t&acirc;&#130;&#128; = forms(f) &acirc;&#136;&sect; context? &acirc;&#136;&#136; dom f then f(context?) else t&acirc;&#130;&#128;)
+</span><span class="">  709: 	&acirc;&#148;&#130; t&acirc;&#130;&#130; = (if t&acirc;&#130;&#129; = forms(g)
+</span><span class="">  710: 	&acirc;&#148;&#130;        then (if plural(lang, count?) &acirc;&#136;&#136; dom g
+</span><span class="">  711: 	&acirc;&#148;&#130;              then g(plural(lang, count?)) else g(other))
+</span><span class="">  712: 	&acirc;&#148;&#130;        else t&acirc;&#130;&#129;)
+</span><span class="">  713: 	&acirc;&#148;&#130; msg! = (if params? = &acirc;&#159;&uml;&acirc;&#159;&copy; then t&acirc;&#130;&#130; else sprintf(t&acirc;&#130;&#130;, params?))
+</span><span class="">  714: 	&acirc;&#148;&#148;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  715: 
+</span><span class="">  716: 	&acirc;&#148;&#140;&acirc;&#148;&#128; I18nUnknownKey &acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  717: 	&acirc;&#148;&#130; &Icirc;&#158;Catalog
+</span><span class="">  718: 	&acirc;&#148;&#130; key? : KEY ; error! : seq CHAR
+</span><span class="">  719: 	&acirc;&#148;&#156;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  720: 	&acirc;&#148;&#130; key? &acirc;&#136;&#137; dom MESSAGES(en)
+</span><span class="">  721: 	&acirc;&#148;&#130; error! = &quot;Unknown message key: &quot; &acirc;&#129;&#128; key?
+</span><span class="">  722: 	&acirc;&#148;&#148;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;&acirc;&#148;&#128;
+</span><span class="">  723: 
+</span><span class="">  724: =head1 STATE DIAGRAM
+</span><span class="">  725: 
+</span><span class="">  726: This module keeps no state between calls: C&lt;i18n&gt; only reads
+</span><span class="">  727: C&lt;%MESSAGES&gt; and C&lt;%ENV&gt;.  The diagram shows the steps of one call.
+</span><span class="">  728: Each box is a step.  Each arrow shows what decides the next step.
+</span><span class="">  729: 
+</span><span class="">  730: 	      i18n($key, \%args)
+</span><span class="">  731: 	              |
+</span><span class="">  732: 	              v
+</span><span class="">  733: 	     +------------------+  key missing, or args
+</span><span class="">  734: 	     |    VALIDATING    |  has a bad field
+</span><span class="">  735: 	     +------------------+-----------------------------+
+</span><span class="">  736: 	              | OK                                    |
+</span><span class="">  737: 	              v                                       |
+</span><span class="">  738: 	     +------------------+                             |
+</span><span class="">  739: 	     | CHOOSING LANGUAGE|  object language, else      |
+</span><span class="">  740: 	     |                  |  LANGUAGE/LC_ALL/           |
+</span><span class="">  741: 	     |                  |  LC_MESSAGES/LANG, else en  |
+</span><span class="">  742: 	     +------------------+                             |
+</span><span class="">  743: 	              |                                       |
+</span><span class="">  744: 	              v                                       v
+</span><span class="">  745: 	     +------------------+  key not in       +------------------+
+</span><span class="">  746: 	     |  LOOKING UP KEY  |  English either   |      FATAL       |
+</span><span class="">  747: 	     | (language, then  |------------------&gt;| croak / confess  |
+</span><span class="">  748: 	     |  English)        |                   +------------------+
+</span><span class="">  749: 	     +------------------+
+</span><span class="">  750: 	              | template found
+</span><span class="">  751: 	              v
+</span><span class="">  752: 	     +------------------+  plain text
+</span><span class="">  753: 	     | NARROWING FORMS  |-----------------------+
+</span><span class="">  754: 	     | 1. context form  |                       |
+</span><span class="">  755: 	     | 2. plural form   |                       |
+</span><span class="">  756: 	     |    (else other)  |                       |
+</span><span class="">  757: 	     +------------------+                       |
+</span><span class="">  758: 	              | one plain template left         |
+</span><span class="">  759: 	              v                                 v
+</span><span class="">  760: 	     +------------------+  no params    +------------------+
+</span><span class="">  761: 	     |   FORMATTING     |--------------&gt;|   return text    |
+</span><span class="">  762: 	     | sprintf(params)  |--------------&gt;|   unchanged /    |
+</span><span class="">  763: 	     +------------------+   params      |   formatted      |
+</span><span class="">  764: 	                                        +------------------+
+</span><span class="">  765: 
+</span><span class="">  766: =cut
 </span></pre>
 
 <script>
