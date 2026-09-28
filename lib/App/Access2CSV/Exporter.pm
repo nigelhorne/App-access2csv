@@ -611,6 +611,10 @@ sub run {
 	# An undef database is a missing one, not a file called "".  Work on a
 	# copy: get_params hands back the caller's own hash when given one.
 	my $input = get_params('database', \@_);
+	# Params::Get either dies or returns a hash reference (proved by the
+	# "dead code" subtest in t/path.t), so this test is always true and its
+	# implicit else can never be reached.
+	# TODO: Unreachable code detected during path analysis. Investigate for removal.
 	if(ref($input) eq 'HASH') {
 		$input = { %{$input} };
 		delete $input->{database} unless defined $input->{database};

@@ -6,6 +6,7 @@ lib/App/Access2CSV/I18N.pm
 LICENSE
 Makefile.PL
 MANIFEST			This list of files
+MANIFEST.SKIP
 README.md
 t/00-load.t
 t/app.t
@@ -21,4 +22,5 @@ t/lib/FakeMDB.pm
 t/locales.t
 t/logic-proofs.t
 t/logic.t
+t/path.t
 t/unit.t

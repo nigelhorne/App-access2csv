@@ -360,6 +360,8 @@ but this is not connected yet.
 [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AExporter), [App::Access2CSV::I18N](https://metacpan.org/pod/App%3A%3AAccess2CSV%3A%3AI18N), [Log::Abstraction](https://metacpan.org/pod/Log%3A%3AAbstraction),
 [https://github.com/mdbtools/mdbtools](https://github.com/mdbtools/mdbtools)
 
+- [Test Dashboard](https://nigelhorne.github.io/App-access2csv/coverage/)
+
 ## Formal Specification
 
 These schemas use the Z notation.  `?` marks an input and `!` an output.

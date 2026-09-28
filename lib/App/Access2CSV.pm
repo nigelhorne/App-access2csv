@@ -583,6 +583,12 @@ but this is not connected yet.
 L<App::Access2CSV::Exporter>, L<App::Access2CSV::I18N>, L<Log::Abstraction>,
 L<https://github.com/mdbtools/mdbtools>
 
+=over 4
+
+=item * L<Test Dashboard|https://nigelhorne.github.io/App-access2csv/coverage/>
+
+=back
+
 =head1 FORMAL SPECIFICATION
 
 These schemas use the Z notation.  C<?> marks an input and C<!> an output.
