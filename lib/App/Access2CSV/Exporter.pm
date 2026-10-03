@@ -576,14 +576,15 @@ have limits of their own:
 	            characters, and also to at most 240 bytes of UTF-8 (64
 	            emoji would be 256 bytes; most file systems allow 255).
 	            A name is never cut inside a character, nor between a
-	            letter and its accents or inside a joined emoji.  Names
-	            that are not UTF-8 count one byte as one character.
+	            letter and its accents or inside a joined emoji.
 	            Shortened names that clash are numbered as usual.
 	characters  non-ASCII letters, emoji, joined emoji, combining marks
 	            and right-to-left text are kept byte for byte.
 	            Characters that are unsafe in file names - including
 	            invisible text-direction controls such as U+202E - are
-	            replaced by "_".
+	            replaced by "_".  So is each byte that is not part of
+	            valid UTF-8 (only a damaged database has them; macOS
+	            refuses such file names).
 	collisions  the first name has no suffix, then _2, _3, ... _10 ...
 	cp1252      U+00FF and the Euro sign convert; U+0100 and above
 	            (except the few Windows-1252 symbols), the C1 controls
@@ -1173,6 +1174,14 @@ sub _csv_filename :Protected {
 
 	my $name = $table // '';
 
+	# macOS only accepts file names that are valid UTF-8 (anything else
+	# fails with "Illegal byte sequence").  mdbtools gives UTF-8, so other
+	# bytes come from a damaged database: each one becomes "_", on every
+	# system, so a table gets the same file name everywhere
+	if(!utf8::is_utf8($name)) {
+		$name = $UTF8_CODEC->encode($UTF8_CODEC->decode($name, sub { '_' }));
+	}
+
 	# Replace characters that are illegal somewhere, then strip leading
 	# and trailing whitespace; Windows also silently drops trailing dots
 	$name =~ s/$UNSAFE_CHARS_RE/_/g;
@@ -1224,12 +1233,11 @@ sub _csv_filename :Protected {
 #                 $MAX_NAME_BYTES bytes of UTF-8, without cutting a
 #                 character, or a character from its accents (a grapheme,
 #                 such as a joined emoji), in half.
-# Entry Criteria: $name is a byte string or a character string.
+# Entry Criteria: $name is a character string, or a byte string of valid
+#                 UTF-8 (_csv_filename has replaced any other bytes).
 # Exit Status:    Returns $name if it fits, otherwise its longest
 #                 beginning that fits, in the same form (bytes or
-#                 characters).  Bytes that are not UTF-8 (a database in
-#                 a legacy code page, one byte per character) are cut at
-#                 the character limit.
+#                 characters).
 # Side Effects:   None.
 sub _shorten_name :Private {
 	my ($self, $name) = @_;
@@ -1239,9 +1247,7 @@ sub _shorten_name :Private {
 	utf8::encode($bytes) if $chars;
 
 	my $text = $bytes;
-	if(!utf8::decode($text)) {
-		return (length($bytes) <= $MAX_NAME_CHARS) ? $name : substr($bytes, 0, $MAX_NAME_CHARS);
-	}
+	utf8::decode($text);
 	return $name if length($text) <= $MAX_NAME_CHARS && length($bytes) <= $MAX_NAME_BYTES;
 
 	# Whole graphemes, as many as fit both limits

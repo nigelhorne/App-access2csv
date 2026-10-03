@@ -19,6 +19,9 @@ Revision history for App-Access2CSV
           shortened to 64 characters and at most 240 bytes, keeping whole
           characters, instead of failing with "File name too long".  Only
           a damaged or hostile database has such names.
+        - Bytes in a table name that are not valid UTF-8 are replaced by
+          "_" in the file name.  macOS refuses such file names, so those
+          tables failed there with "Illegal byte sequence".
 
 0.001.0	Mon Sep 28 02:13:38 PM EDT 2026
         First release.

@@ -54,7 +54,9 @@ Each file has the name of its table plus `.csv`, for example
 computers (`< > : " / \ | ? *` and control characters).  They are
 changed to `_`, and so are invisible text-direction controls (such as
 U+202E, "right-to-left override"), which could make a file name look
-like something else.  Spaces and dots at the end, and spaces at the start,
+like something else.  Bytes that are not valid UTF-8 (only a damaged
+database has them, and macOS cannot store them in a file name) are also
+changed to `_`.  Spaces and dots at the end, and spaces at the start,
 are removed.  A name such as `CON` or `NUL` (reserved on Windows) gets a
 `_` in front.  An empty name becomes `unnamed`.
 

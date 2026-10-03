@@ -171,7 +171,9 @@ C<Orders.csv>.  Some characters are not allowed in file names on some
 computers (C<< < > : " / \ | ? * >> and control characters).  They are
 changed to C<_>, and so are invisible text-direction controls (such as
 U+202E, "right-to-left override"), which could make a file name look
-like something else.  Spaces and dots at the end, and spaces at the start,
+like something else.  Bytes that are not valid UTF-8 (only a damaged
+database has them, and macOS cannot store them in a file name) are also
+changed to C<_>.  Spaces and dots at the end, and spaces at the start,
 are removed.  A name such as C<CON> or C<NUL> (reserved on Windows) gets a
 C<_> in front.  An empty name becomes C<unnamed>.
 

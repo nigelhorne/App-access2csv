@@ -374,13 +374,26 @@ subtest 'table name length in multibyte text: shortened at a whole character' =>
 		is($status, $CONFIG{exit_ok}, "$case: exported");
 		is_deeply(dir_entries($out), [($unit x $fits) . $CONFIG{csv_suffix}], "$case: $fits whole ones kept");
 	}
+};
 
-	# A legacy code page (Latin-1 bytes, not UTF-8): one byte is one
-	# character, so it is cut at 64 bytes
-	my $latin1 = "\xE9";
-	my ($status, undef, $out) = export([$latin1 x $CONFIG{name_max}]);
-	is($status, $CONFIG{exit_ok}, 'not UTF-8: exported');
-	is_deeply(dir_entries($out), [($latin1 x $CONFIG{access_max}) . $CONFIG{csv_suffix}], 'not UTF-8: cut at 64 bytes');
+subtest 'table name bytes that are not UTF-8 become "_"' => sub {
+	# macOS refuses file names that are not valid UTF-8 ("Illegal byte
+	# sequence"), so 0.001.0 failed these tables there.  Each bad byte is
+	# replaced, on every system, so the name is the same everywhere.
+	my %names = (
+		'Latin-1 e-acute'          => ["Caf\xE9", 'Caf_'],
+		'cut-off UTF-8 character'  => ["Tea\xC3", 'Tea_'],
+		'UTF-16 surrogate'         => ["a\xED\xA0\x80b", 'a_b'],
+		'valid UTF-8 kept'         => [bytes("Cr\x{e8}me"), bytes("Cr\x{e8}me")],
+	);
+	my ($status, $stderr, $out) = export([map { $_->[0] } values %names]);
+	is($status, $CONFIG{exit_ok}, 'every table exported') or diag($stderr);
+	is_deeply(dir_entries($out), [sort map { $_->[1] . $CONFIG{csv_suffix} } values %names], 'bad bytes replaced, valid UTF-8 kept');
+
+	# Then shortened like any other name
+	($status, undef, $out) = export(["\xE9" x $CONFIG{name_max}]);
+	is($status, $CONFIG{exit_ok}, 'long Latin-1 name: exported');
+	is_deeply(dir_entries($out), [('_' x $CONFIG{access_max}) . $CONFIG{csv_suffix}], 'long Latin-1 name: replaced, then shortened to 64');
 };
 
 subtest 'table name characters: German, emoji, Zalgo, RTL text' => sub {

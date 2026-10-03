@@ -160,9 +160,10 @@ my %PATHS = (
 	# _csv_filename
 	CF1 => 'undef name', CF2 => 'reserved device name', CF3 => 'empty after cleaning',
 	CF4 => 'collision loop 0 times', CF5 => 'collision loop 1 time', CF6 => 'collision loop many times',
+	CF7 => 'character string: no UTF-8 check', CF8 => 'byte string: bytes that are not UTF-8 replaced',
 	# _shorten_name
-	SN1 => 'fits: unchanged', SN2 => 'too long, not UTF-8: cut at the character (byte) limit',
-	SN3 => 'too long, UTF-8 bytes: whole graphemes', SN4 => 'too long, characters: whole graphemes, still characters',
+	SN1 => 'fits: unchanged', SN2 => 'too long, UTF-8 bytes: whole graphemes',
+	SN3 => 'too long, characters: whole graphemes, still characters',
 	# _dry_run
 	DR1 => 'no counts, loop 0 times', DR2 => 'counts, loop many times',
 	DR3 => 'a count fails -> "?" and a warning',
@@ -563,18 +564,21 @@ subtest '_csv_filename paths' => sub {
 	is($e->_csv_filename(' .. '), 'unnamed_2.csv', 'CF3 (and CF5: one collision pass)'); took('CF3', 'CF5');
 	is($e->_csv_filename('Orders'), 'Orders.csv', 'CF4: 0 collision passes'); took('CF4');
 	is($e->_csv_filename(''), 'unnamed_3.csv', 'CF6: two collision passes'); took('CF6');
+	my $chars = "Caf\x{e9}";
+	utf8::upgrade($chars);
+	is($e->_csv_filename($chars), "Caf\x{e9}.csv", 'CF7'); took('CF7');
+	is($e->_csv_filename("Caf\xE9!"), 'Caf_!.csv', 'CF8'); took('CF8');
 };
 
 subtest '_shorten_name paths' => sub {
 	my $e = exporter();
 	my $max = $CONFIG{max_name_chars};
 	is($e->_shorten_name('a'), 'a', 'SN1'); took('SN1');
-	is($e->_shorten_name("\xFF" x ($max + 1)), "\xFF" x $max, 'SN2'); took('SN2');
-	is($e->_shorten_name("\xC3\xBC" x ($max + 1)), "\xC3\xBC" x $max, 'SN3'); took('SN3');
+	is($e->_shorten_name("\xC3\xBC" x ($max + 1)), "\xC3\xBC" x $max, 'SN2'); took('SN2');
 	my $chars = "\x{fc}" x ($max + 1);
 	utf8::upgrade($chars);
 	my $short = $e->_shorten_name($chars);
-	ok(utf8::is_utf8($short) && $short eq "\x{fc}" x $max, 'SN4'); took('SN4');
+	ok(utf8::is_utf8($short) && $short eq "\x{fc}" x $max, 'SN3'); took('SN3');
 };
 
 subtest '_dry_run paths' => sub {

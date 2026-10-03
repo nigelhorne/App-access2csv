@@ -826,11 +826,13 @@ subtest 'Exporter::_csv_filename makes safe, unique names' => sub {
 	returns_ok($e->_csv_filename('z'), { type => 'string', matches => qr/\.csv\z/ }, 'a .csv name');
 };
 
-subtest 'Exporter::_csv_filename shortens long names, then trims the end again' => sub {
+subtest 'Exporter::_csv_filename replaces bad bytes, shortens long names, then trims the end' => sub {
 	my $e = new_exporter();
 	my $max = $CONFIG{max_name_chars};
 	is($e->_csv_filename(('a' x ($max - 1)) . ' bc'), ('a' x ($max - 1)) . '.csv', 'space left at the cut is removed');
 	is($e->_csv_filename(('b' x ($max - 1)) . '.c'), ('b' x ($max - 1)) . '.csv', 'dot left at the cut is removed');
+	is($e->_csv_filename("Caf\xE9 \xC3"), 'Caf_ _.csv', 'bytes that are not UTF-8 replaced');
+	is($e->_csv_filename(('c' x ($max - 1)) . "\xFF\xFF"), ('c' x ($max - 1)) . '_.csv', 'replaced before shortening');
 };
 
 subtest 'Exporter::_shorten_name keeps whole graphemes within both limits' => sub {
@@ -867,8 +869,6 @@ subtest 'Exporter::_shorten_name keeps whole graphemes within both limits' => su
 	is($e->_shorten_name($accented x $max), $accented x ($max / 2), 'graphemes kept whole');
 	is($e->_shorten_name('x' . ($accented x $max)), 'x' . ($accented x ($max / 2 - 1)), 'one that would be cut is dropped');
 
-	# Not UTF-8 at all: one byte is one character
-	is($e->_shorten_name("\xE9" x ($max + 1)), "\xE9" x $max, 'Latin-1 bytes: cut at 64');
 };
 
 subtest 'Exporter::_dry_run prints the table list' => sub {
