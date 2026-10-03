@@ -15,6 +15,7 @@ use App::Access2CSV::Exporter;
 use Fcntl qw(O_APPEND O_CREAT O_WRONLY);
 use File::Temp;
 use Getopt::Long qw(GetOptionsFromArray);
+use IO::Handle;
 use Log::Abstraction;
 use Pod::Usage qw(pod2usage);
 use Readonly;
@@ -22,7 +23,7 @@ use Return::Set qw(set_return);
 use Scalar::Util qw(blessed);
 use Sub::Private;
 
-our $VERSION = '0.001.0';
+our $VERSION = '0.001.1';
 
 # ---------------------------------------------------------------------
 # Roadmap (from the pre-release gap analysis)
@@ -58,9 +59,6 @@ our $VERSION = '0.001.0';
 # TODO: IPC::Run3 does not reveal the child's process ID, so after SIGTERM
 #	the running mdb-export is not stopped.  Moving to IPC::Run or
 #	IPC::Open3 would allow that, and streaming for --jobs.
-# TODO: The log symlink check and Log::Abstraction's own open are two
-#	steps; closing that gap needs Log::Abstraction to accept an open
-#	filehandle.
 # TODO: I18N.pm also holds helpers unrelated to messages (_printable,
 #	_interrupt_signals, the coverage CHECK block); move them to a small
 #	shared module, and remove the duplicated control-character patterns
@@ -118,7 +116,7 @@ App::Access2CSV - Export the tables of a Microsoft Access database to CSV files
 
 =head1 VERSION
 
-Version 0.001.0
+Version 0.001.1
 
 =head1 SYNOPSIS
 
@@ -292,7 +290,7 @@ Print this whole manual, then stop.
 
 =item B<--version>
 
-Print the version ("access2csv version 0.001.0"), then stop.
+Print the version ("access2csv version 0.001.1"), then stop.
 
 =back
 
@@ -747,19 +745,28 @@ sub _make_logger :Private {
 	# it is untainted (for taint mode); a NUL byte cannot name a file at all
 	($file) = $file =~ /\A([^\x00]+)\z/s or $class->_croak_i18n('log_open_failed', { params => [$opt->{log}, $class->i18n('invalid_name')] });
 
-	# Log::Abstraction silently ignores an unwritable file, which would lose
-	# the log without telling anyone, so prove that we can append first.
-	# O_NOFOLLOW (where the OS has it) closes the gap between the -l test
-	# above and the open.  The eval must not overwrite the caller's $@.
+	# Open the log once, here, and give Log::Abstraction the handle, not the
+	# name.  Given a name, it reopens the file for every message (following
+	# any link planted since the -l test above), rejects names containing
+	# "..", "$", "!", ";" and the like only when the first message is
+	# written, and ignores a file it cannot open - losing the log without
+	# telling anyone.  O_NOFOLLOW (where the OS has it) closes the gap
+	# between the -l test and this open.  The eval must not overwrite the
+	# caller's $@.
 	local $@;
+	my $fh;
 	eval {
-		sysopen my $fh, $file, O_WRONLY | O_APPEND | O_CREAT | _no_follow();
-		close $fh;
+		sysopen $fh, $file, O_WRONLY | O_APPEND | O_CREAT | _no_follow();
 		1;
 	} or $class->_croak_i18n('log_open_failed', { params => [$file, _failure_reason($@)] });
 
+	# Write each line as it is logged, as reopening the file did, so a
+	# killed run still leaves its log behind
+	$fh->autoflush(1);
+
+	# The handle is closed when the last reference to the logger goes
 	my $logger = Log::Abstraction->new(
-		logger => $file,
+		logger => { fd => $fh },
 		level  => $opt->{verbose} ? $LOG_LEVEL_VERBOSE : $LOG_LEVEL,
 	);
 

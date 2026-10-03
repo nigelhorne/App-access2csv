@@ -712,7 +712,7 @@ subtest 'app: exit 0 for success, --help and --man' => sub {
 	ticked('app: returns 0');
 	ok(-e "$out/Orders.csv", 'file written');
 	ok(-e $log, 'log file created');
-	is($made[0]{logger}, $log, 'log goes to --log file');
+	is(join(':', (stat $made[0]{logger}{fd})[0, 1]), join(':', (stat $log)[0, 1]), 'log goes to --log file');
 
 	($status, $stdout) = cli('--help');
 	is($status, $CONFIG{exit_ok}, '--help: 0');

@@ -4,7 +4,7 @@ App::Access2CSV - Export the tables of a Microsoft Access database to CSV files
 
 ## Version
 
-Version 0.001.0
+Version 0.001.1
 
 ## Synopsis
 
@@ -176,7 +176,7 @@ For more control, use [App::Access2CSV::Exporter](https://metacpan.org/pod/App%3
 
 - **--version**
 
-    Print the version ("access2csv version 0.001.0"), then stop.
+    Print the version ("access2csv version 0.001.1"), then stop.
 
 ## Exit Status
 

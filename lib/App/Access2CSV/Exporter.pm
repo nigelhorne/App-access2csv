@@ -27,7 +27,7 @@ use Scalar::Util qw(blessed);
 use Sub::Private;
 use Sub::Protected;
 
-our $VERSION = '0.001.0';
+our $VERSION = '0.001.1';
 
 # Stop Carp from reporting errors against the access-control wrappers
 our @CARP_NOT = qw(Sub::Private Sub::Protected App::Access2CSV::I18N);
@@ -149,7 +149,7 @@ App::Access2CSV::Exporter - Export the tables of a Microsoft Access database to 
 
 =head1 VERSION
 
-Version 0.001.0
+Version 0.001.1
 
 =head1 SYNOPSIS
 

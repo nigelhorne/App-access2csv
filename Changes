@@ -1,5 +1,15 @@
 Revision history for App-Access2CSV
 
+0.001.1
+        [ Bug fixes ]
+        - --log with a name containing "..", "$", "!" or ";" (such as
+          --log ../logs/run.log) created an empty log and lost every
+          message, with only a "Cannot write to the log" warning
+        - The log is now opened once, refusing symbolic links, and kept
+          open for the run.  Before, it was reopened for every message, so
+          a symbolic link planted after the check could still be written
+          through
+
 0.001.0	Mon Sep 28 02:13:38 PM EDT 2026
         First release.
         - access2csv: export every user table of an Access (.mdb/.accdb)

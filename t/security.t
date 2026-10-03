@@ -322,6 +322,37 @@ subtest 'symbolic-link attack on the log file' => sub {
 	chdir $cwd or die $!;
 };
 
+subtest 'regression: a symbolic link planted after the log is opened' => sub {
+	# Exploit: the attacker waits until the log has passed the link check,
+	# then replaces it with a link to the victim's file.  0.001.0 gave
+	# Log::Abstraction the file name, and it reopened the name for every
+	# message, so every line after the swap went into the victim's file.
+	# The log is now opened once and written through that handle.
+	my $shared = tempdir(CLEANUP => 1);
+	my $victim = "$shared/victim";
+	open my $fh, '>', $victim or die $!;
+	print {$fh} "precious\n";
+	close $fh;
+	my $db = make_database(tempdir(CLEANUP => 1), 'T');
+	local %ENV = (%ENV, PATH => $CLEAN_PATH);
+
+	my $log = "$shared/access2csv.log";
+	my $moved = "$shared/moved.log";
+	my $real = \&App::Access2CSV::Exporter::run;
+	my $guard = mock_scoped("$CONFIG{exporter}::run" => sub {
+		# The log is open by now: swap it before anything is written
+		rename($log, $moved) or die "$log: $!";
+		symlink($victim, $log) or die "$log: $!";
+		return $real->(@_);
+	});
+	my ($status) = cli('--no-progress', '--log', $log, '--output-dir', "$shared/out", $db);
+	undef $guard;
+
+	is($status, $CONFIG{exit_ok}, 'export: 0');
+	is(slurp($victim), "precious\n", 'victim file untouched');
+	like(slurp($moved), qr/Processed 1 table, 0 failed/, 'messages went to the file that was checked');
+};
+
 subtest 'spreadsheet formula injection is documented, not altered' => sub {
 	# Risk: a cell such as =cmd|' /C calc'!A0 can run when the CSV is opened
 	# in a spreadsheet.  An exporter must copy data exactly, so it is not

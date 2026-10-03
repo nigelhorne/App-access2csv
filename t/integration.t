@@ -229,7 +229,8 @@ subtest 'interactions: external routines are called with the right arguments' =>
 
 	my ($created) = $logger->();
 	my (undef, undef, %args) = @{$created};
-	is_deeply(\%args, { logger => $log, level => 'debug' }, 'logger: the --log file, debug with --verbose');
+	is($args{level}, 'debug', 'logger: debug with --verbose');
+	is(join(':', (stat $args{logger}{fd})[0, 1]), join(':', (stat $log)[0, 1]), 'logger: a handle on the --log file');
 	like(slurp($log), qr/Found mdb-export at \Q$FULL_PATH\E/, 'debug message reached the file');
 
 	restore_all();

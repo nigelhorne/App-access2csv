@@ -996,7 +996,13 @@ subtest 'App::_make_logger opens the log only when wanted' => sub {
 	isa_ok($CONFIG{app}->_make_logger({ log => $file }), 'Local::Logger');
 	is($@, $CONFIG{sentinel}, '$@ localised');
 	ok(-e $file, 'file created up front');
-	is_deeply($created[0], { logger => $file, level => 'info' }, 'info level');
+	is_deeply([sort keys %{$created[0]}], [qw(level logger)], 'only logger and level given');
+	is($created[0]{level}, 'info', 'info level');
+	is_deeply([keys %{$created[0]{logger}}], ['fd'], 'logger is a handle, not a file name');
+	my $fd = $created[0]{logger}{fd};
+	ok(defined fileno($fd), 'handle is open');
+	is(join(':', (stat $fd)[0, 1]), join(':', (stat $file)[0, 1]), 'handle is on the log file');
+	ok($fd->autoflush(), 'each line is written at once');
 
 	$CONFIG{app}->_make_logger({ log => $file, verbose => 1 });
 	is($created[1]{level}, 'debug', 'verbose: debug level');
