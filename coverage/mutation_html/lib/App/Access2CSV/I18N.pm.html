@@ -358,7 +358,7 @@ Approximate LCSAJ segments: 41<br>
 </span><span class="">   17: use Sub::Private;
 </span><span class="">   18: use Sub::Protected;
 </span><span class="">   19: 
-</span><span class="">   20: our $VERSION = &#39;0.001.0&#39;;
+</span><span class="">   20: our $VERSION = &#39;0.001.1&#39;;
 </span><span class="">   21: 
 </span><span class="">   22: # The wrappers installed by Sub::Private/Sub::Protected add stack frames;
 </span><span class="">   23: # listing them here stops Carp from blaming the wrapper for our errors
@@ -515,7 +515,7 @@ Approximate LCSAJ segments: 41<br>
 </span><span class="">  168: 
 </span><span class="">  169: =head1 VERSION
 </span><span class="">  170: 
-</span><span class="">  171: Version 0.001.0
+</span><span class="">  171: Version 0.001.1
 </span><span class="">  172: 
 </span><span class="">  173: =head1 SYNOPSIS
 </span><span class="">  174: 
@@ -996,7 +996,7 @@ Approximate LCSAJ segments: 41<br>
 </span><span class="killed tooltip" data-tooltip="Mutations here were killed. Tests are effectively covering this logic.">  643: 		return $catalog-&gt;{$key} if $catalog &amp;&amp; exists($catalog-&gt;{$key});
 </span><p> <b> Mutants (Total: 2, Killed: 2, Survived: 0)</b><p><span class="">  644: 	}
 </span><span class="">  645: 
-</span><span class="survived-2 tooltip" data-tooltip="Boolean logic mutation survived. Add tests covering both true and false paths. Return value mutation survived. Add tests asserting exact return values.">  646: 	return _unknown_key($key);
+</span><span class="survived-2 tooltip" data-tooltip="Return value mutation survived. Add tests asserting exact return values. Boolean logic mutation survived. Add tests covering both true and false paths.">  646: 	return _unknown_key($key);
 </span>
 					<details class="mutant-details">
 					<summary>Mutants (Total: 2, Killed: 0, Survived: 2)</summary>
