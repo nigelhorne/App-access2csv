@@ -9,6 +9,16 @@ Revision history for App-Access2CSV
           open for the run.  Before, it was reopened for every message, so
           a symbolic link planted after the check could still be written
           through
+        - A directory given as standard input ("access2csv - < dir") is
+          refused with "Cannot read standard input: Is a directory" on
+          every system.  On NetBSD (and FreeBSD before 13) reading a
+          directory returns its raw entries, which were exported as if they
+          were a database:
+          https://www.cpantesters.org/cpan/report/e9759fca-bda8-11f1-b0a1-a794297aa253
+        - Table names longer than Access allows (64 characters) are
+          shortened to 64 characters and at most 240 bytes, keeping whole
+          characters, instead of failing with "File name too long".  Only
+          a damaged or hostile database has such names.
 
 0.001.0	Mon Sep 28 02:13:38 PM EDT 2026
         First release.

@@ -297,7 +297,7 @@ subtest 'optional dependency: a missing required module fails loudly' => sub {
 subtest 'concurrency: independent exporters do not interfere' => sub {
 	# Two objects, created together and run in interleaved order, with
 	# different settings.  Each must keep its own names, settings and
-	# language, and write only to its own folder.
+	# language, and write only to its own directory.
 	my ($dir, $db) = new_database('A/B', 'A:B', 'Unicode');
 	local $App::Access2CSV::I18N::MESSAGES{de} = { progress => '[%d von %d] %s' };
 	local $ENV{LANG} = 'de_DE.UTF-8';

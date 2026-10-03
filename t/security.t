@@ -8,7 +8,7 @@
 #	- the environment: PATH (to find mdbtools) and the locale variables
 #	- a hostile Access database: its table names and data, which reach
 #	  command arguments, file names, the terminal and the log
-#	- the places it writes: the output folder and the log file
+#	- the places it writes: the output directory and the log file
 # Each subtest mocks a hostile environment with local %ENV, as a CGI
 # test would, and asserts that the program fails safely.
 #
@@ -107,10 +107,10 @@ sub plant_programs {
 # Environment
 #######################################################################
 
-subtest 'PATH hijack: programs planted in the current folder are never run' => sub {
+subtest 'PATH hijack: programs planted in the current directory are never run' => sub {
 	# Exploit: PATH contains "." (or another relative entry).  The victim
-	# runs access2csv in a folder the attacker controls (an unpacked
-	# archive, a shared folder) that contains an "mdb-tables" script.
+	# runs access2csv in a directory the attacker controls (an unpacked
+	# archive, a shared directory) that contains an "mdb-tables" script.
 	my $trap = tempdir(CLEANUP => 1);
 	my $marker = "$trap/$CONFIG{marker}";
 	plant_programs($trap, $marker);
@@ -141,7 +141,7 @@ subtest 'PATH hijack: programs planted in the current folder are never run' => s
 subtest 'PATH entries containing shell syntax are never interpreted' => sub {
 	# Exploit: a PATH directory named with shell syntax; if the program
 	# were ever started through a shell, the name would run a command
-	# The name has no "/", so it is one folder; run from $root, where an
+	# The name has no "/", so it is one directory; run from $root, where an
 	# executed "touch" would create the marker
 	my $root = tempdir(CLEANUP => 1);
 	my $marker = "$root/$CONFIG{marker}";
@@ -270,7 +270,7 @@ subtest 'command and option injection through names' => sub {
 };
 
 subtest 'path traversal and NUL bytes' => sub {
-	# Exploit 1: table names that climb out of the output folder.
+	# Exploit 1: table names that climb out of the output directory.
 	# Exploit 2: a NUL byte that a C library would treat as the end of the
 	# path, so "safe.accdb\0../../secret" could open "safe.accdb".
 	my $dir = tempdir(CLEANUP => 1);
@@ -280,7 +280,7 @@ subtest 'path traversal and NUL bytes' => sub {
 	my ($status) = cli('--no-log', '--output-dir', "$dir/out/in", $db);
 	is($status, $CONFIG{exit_ok}, 'exported');
 	opendir my $dh, "$dir/out" or die $!;
-	is_deeply([grep { !/\A\.\.?\z/ } readdir $dh], ['in'], 'nothing written outside the output folder');
+	is_deeply([grep { !/\A\.\.?\z/ } readdir $dh], ['in'], 'nothing written outside the output directory');
 	ok(!grep({ m{/|\x00} } map { (File::Spec->splitpath($_))[2] } glob("$dir/out/in/*")), 'no slash or NUL in any file name');
 
 	($status, undef, my $stderr) = cli('--no-log', '--output-dir', "$dir/nul", "$db\x00../../etc/passwd");
@@ -294,7 +294,7 @@ subtest 'path traversal and NUL bytes' => sub {
 #######################################################################
 
 subtest 'symbolic-link attack on the log file' => sub {
-	# Exploit: in a shared folder such as /tmp, another user plants
+	# Exploit: in a shared directory such as /tmp, another user plants
 	# "access2csv.log" as a link to a file of the victim's (~/.profile).
 	# Appending the log to it would corrupt, or inject into, that file.
 	my $shared = tempdir(CLEANUP => 1);

@@ -64,6 +64,9 @@ Readonly::Hash my %CONFIG => (
 	pod_full      => 2,
 	utf8_bom      => "\xEF\xBB\xBF",
 	sentinel      => "sentinel error\n",
+	max_name_chars => 64,
+	max_name_bytes => 240,
+	name_max      => 255,
 );
 
 # The text Perl itself uses for ENOENT, in the current locale
@@ -74,6 +77,13 @@ sub verbose_diag {
 	my ($label, $data) = @_;
 	diag("$label: ", Test::More::explain($data)) if $ENV{TEST_VERBOSE};
 	return;
+}
+
+# UTF-8 bytes of a character string, the form mdbtools gives names in
+sub bytes {
+	my $text = shift;
+	utf8::encode($text);
+	return $text;
 }
 
 # An exporter with progress lines switched off, so output stays clean
@@ -333,7 +343,7 @@ subtest 'Exporter::run calls its steps in order and maps failures to status' => 
 
 	@order = ();
 	is(new_exporter(dry_run => 1)->run($CONFIG{database}), $CONFIG{exit_ok}, 'dry run: 0');
-	ok(!grep({ /^(?:mkdir|export)/ } @order), 'dry run neither creates the folder nor exports');
+	ok(!grep({ /^(?:mkdir|export)/ } @order), 'dry run neither creates the directory nor exports');
 	ok((grep { $_ eq 'dry_run' } @order), 'dry run listing produced');
 };
 
@@ -472,19 +482,19 @@ subtest 'Exporter::_select_tables applies the table filter' => sub {
 	is_deeply(\@warned, [], 'no warning when all are found');
 };
 
-subtest 'Exporter::_make_output_dir creates the folder or croaks' => sub {
+subtest 'Exporter::_make_output_dir creates the directory or croaks' => sub {
 	my $dir = tempdir(CLEANUP => 1);
 
-	# An existing folder must not even reach File::Path
+	# An existing directory must not even reach File::Path
 	my $spy = spy("$CONFIG{exporter}::make_path");
 	my $e = new_exporter(output_dir => $dir);
-	is($e->_make_output_dir(), $e, 'existing folder: returns $self');
+	is($e->_make_output_dir(), $e, 'existing directory: returns $self');
 	is(scalar($spy->()), 0, 'make_path not called');
 	restore_all();
 
 	my $nested = File::Spec->catdir($dir, 'a', 'b');
 	new_exporter(output_dir => $nested)->_make_output_dir();
-	ok(-d $nested, 'nested folders created');
+	ok(-d $nested, 'nested directory created');
 
 	# File::Path reports errors through its error option
 	my $bad = File::Spec->catdir($dir, 'denied');
@@ -496,7 +506,7 @@ subtest 'Exporter::_make_output_dir creates the folder or croaks' => sub {
 	throws_ok { new_exporter(output_dir => $bad)->_make_output_dir() } qr/\ACannot create output directory \Q$bad\E: Permission denied at /, 'exact message';
 };
 
-subtest 'Exporter::_make_output_dir notices a folder that silently did not appear' => sub {
+subtest 'Exporter::_make_output_dir notices a directory that silently did not appear' => sub {
 	my $bad = File::Spec->catdir(tempdir(CLEANUP => 1), 'ghost');
 	my $guard = mock_scoped("$CONFIG{exporter}::make_path" => sub { ${ $_[1]{error} } = []; $! = ENOENT; return });
 	throws_ok { new_exporter(output_dir => $bad)->_make_output_dir() } qr/\ACannot create output directory \Q$bad\E: \Q$ENOENT_TEXT\E at /, 'OS text used';
@@ -814,6 +824,51 @@ subtest 'Exporter::_csv_filename makes safe, unique names' => sub {
 	is($e->_csv_filename(undef), 'unnamed.csv', 'undef');
 	is_deeply([sort keys %{ $e->{used_names} }], [sort map { lc } qw(A_B.csv a_b_2.csv A_B_2_2.csv _NUL.csv _x.csv unnamed.csv)], 'all names recorded in lower case');
 	returns_ok($e->_csv_filename('z'), { type => 'string', matches => qr/\.csv\z/ }, 'a .csv name');
+};
+
+subtest 'Exporter::_csv_filename shortens long names, then trims the end again' => sub {
+	my $e = new_exporter();
+	my $max = $CONFIG{max_name_chars};
+	is($e->_csv_filename(('a' x ($max - 1)) . ' bc'), ('a' x ($max - 1)) . '.csv', 'space left at the cut is removed');
+	is($e->_csv_filename(('b' x ($max - 1)) . '.c'), ('b' x ($max - 1)) . '.csv', 'dot left at the cut is removed');
+};
+
+subtest 'Exporter::_shorten_name keeps whole graphemes within both limits' => sub {
+	my $e = new_exporter();
+	my $max = $CONFIG{max_name_chars};
+
+	is($e->_shorten_name('a' x $max), 'a' x $max, 'at the limit: unchanged');
+	is($e->_shorten_name('a' x ($max + 1)), 'a' x $max, 'one over: cut');
+
+	# Characters in, characters out (and bytes in, bytes out)
+	my $chars = "\x{fc}" x $CONFIG{name_max};
+	utf8::upgrade($chars);    # below U+0100, Perl would otherwise keep it as bytes
+	my $short = $e->_shorten_name($chars);
+	ok(utf8::is_utf8($short), 'character string stays a character string');
+	is($short, "\x{fc}" x $max, 'counted in characters, not bytes');
+
+	my $bytes = $chars;
+	utf8::encode($bytes);
+	$short = $e->_shorten_name($bytes);
+	ok(!utf8::is_utf8($short), 'byte string stays a byte string');
+	is($short, bytes("\x{fc}" x $max), 'UTF-8 bytes: 64 whole characters');
+
+	# 64 emoji are 256 bytes: the byte limit applies first
+	my $emoji = "\x{1F600}";
+	is($e->_shorten_name($emoji x $max), $emoji x ($CONFIG{max_name_bytes} / 4), 'byte limit: 60 emoji');
+
+	# A 4-byte character that would cross the byte limit is dropped whole
+	$short = $e->_shorten_name(bytes('xx' . ($emoji x ($max - 2))));
+	is($short, bytes('xx' . ($emoji x 59)), 'not split at the byte limit');
+	ok(utf8::decode(my $copy = $short), 'result is still valid UTF-8');
+
+	# A letter is not separated from its combining accent (2 characters)
+	my $accented = "e\x{301}";
+	is($e->_shorten_name($accented x $max), $accented x ($max / 2), 'graphemes kept whole');
+	is($e->_shorten_name('x' . ($accented x $max)), 'x' . ($accented x ($max / 2 - 1)), 'one that would be cut is dropped');
+
+	# Not UTF-8 at all: one byte is one character
+	is($e->_shorten_name("\xE9" x ($max + 1)), "\xE9" x $max, 'Latin-1 bytes: cut at 64');
 };
 
 subtest 'Exporter::_dry_run prints the table list' => sub {

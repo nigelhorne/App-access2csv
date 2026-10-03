@@ -63,6 +63,7 @@ Readonly::Hash my %CONFIG => (
 	rows         => 7,
 	fake_bin     => '/fake/bin',
 	utf8_bom     => "\xEF\xBB\xBF",
+	max_name_chars => 64,
 );
 
 Readonly::Scalar my $ENOENT_TEXT => do { local $! = ENOENT; "$!" };
@@ -117,7 +118,7 @@ my %PATHS = (
 	R4 => 'dry run exit',
 	R5 => 'export, no failures -> 0',
 	R6 => 'export, failures -> 1',
-	R7 => 'nothing selected -> no output folder, straight to the summary',
+	R7 => 'nothing selected -> no output directory, straight to the summary',
 	# _check_database
 	D1 => 'does not exist', D2 => 'not a regular file', D3 => 'not readable', D4 => 'accepted',
 	# _verify_dependencies
@@ -136,8 +137,8 @@ my %PATHS = (
 	T1 => 'no filter -> early return', T2 => 'filter, all found', T3 => 'filter, some missing -> warn',
 	# _make_output_dir
 	M1 => 'exists -> early return', M2 => 'created',
-	M3 => 'error for this folder', M4 => 'errors, none for this folder -> last one',
-	M5 => 'no errors but no folder -> $!',
+	M3 => 'error for this directory', M4 => 'errors, none for this directory -> last one',
+	M5 => 'no errors but no directory -> $!',
 	# _export_all
 	A1 => 'loop 0 times', A2 => 'loop 1 time, success, progress',
 	A3 => 'loop many times, a failure warned', A4 => 'false exception -> "Unknown error"',
@@ -159,6 +160,9 @@ my %PATHS = (
 	# _csv_filename
 	CF1 => 'undef name', CF2 => 'reserved device name', CF3 => 'empty after cleaning',
 	CF4 => 'collision loop 0 times', CF5 => 'collision loop 1 time', CF6 => 'collision loop many times',
+	# _shorten_name
+	SN1 => 'fits: unchanged', SN2 => 'too long, not UTF-8: cut at the character (byte) limit',
+	SN3 => 'too long, UTF-8 bytes: whole graphemes', SN4 => 'too long, characters: whole graphemes, still characters',
 	# _dry_run
 	DR1 => 'no counts, loop 0 times', DR2 => 'counts, loop many times',
 	DR3 => 'a count fails -> "?" and a warning',
@@ -323,7 +327,7 @@ subtest 'run paths' => sub {
 	is(exporter()->run('db'), $CONFIG{exit_failure}, 'R6'); took('R6');
 	($status, $tables, $made) = (0, [], 0);
 	is(exporter()->run('db'), $CONFIG{exit_ok}, 'R7: status');
-	is($made, 0, 'R7: no output folder made'); took('R7');
+	is($made, 0, 'R7: no output directory made'); took('R7');
 };
 
 subtest 'dead code: Params::Get never returns anything but a hash' => sub {
@@ -559,6 +563,18 @@ subtest '_csv_filename paths' => sub {
 	is($e->_csv_filename(' .. '), 'unnamed_2.csv', 'CF3 (and CF5: one collision pass)'); took('CF3', 'CF5');
 	is($e->_csv_filename('Orders'), 'Orders.csv', 'CF4: 0 collision passes'); took('CF4');
 	is($e->_csv_filename(''), 'unnamed_3.csv', 'CF6: two collision passes'); took('CF6');
+};
+
+subtest '_shorten_name paths' => sub {
+	my $e = exporter();
+	my $max = $CONFIG{max_name_chars};
+	is($e->_shorten_name('a'), 'a', 'SN1'); took('SN1');
+	is($e->_shorten_name("\xFF" x ($max + 1)), "\xFF" x $max, 'SN2'); took('SN2');
+	is($e->_shorten_name("\xC3\xBC" x ($max + 1)), "\xC3\xBC" x $max, 'SN3'); took('SN3');
+	my $chars = "\x{fc}" x ($max + 1);
+	utf8::upgrade($chars);
+	my $short = $e->_shorten_name($chars);
+	ok(utf8::is_utf8($short) && $short eq "\x{fc}" x $max, 'SN4'); took('SN4');
 };
 
 subtest '_dry_run paths' => sub {

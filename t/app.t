@@ -108,7 +108,7 @@ subtest 'regression: --log names that Log::Abstraction refuses by name' => sub {
 	my $work = tempdir(CLEANUP => 1);
 	mkdir File::Spec->catdir($work, 'sub') or die "$work/sub: $!";
 	my %names = (
-		'parent folder' => File::Spec->catfile($work, 'sub', File::Spec->updir(), 'up.log'),
+		'parent directory' => File::Spec->catfile($work, 'sub', File::Spec->updir(), 'up.log'),
 		'dollar'        => File::Spec->catfile($work, 'cost$.log'),
 		'exclamation'   => File::Spec->catfile($work, 'done!.log'),
 		'semicolon'     => File::Spec->catfile($work, 'a;b.log'),
