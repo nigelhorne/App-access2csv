@@ -1,6 +1,6 @@
 Revision history for App-Access2CSV
 
-0.001.1
+0.001.1	Fri Oct  2 09:17:41 PM EDT 2026
         [ Bug fixes ]
         - --log with a name containing "..", "$", "!" or ";" (such as
           --log ../logs/run.log) created an empty log and lost every
